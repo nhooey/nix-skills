@@ -1,0 +1,13 @@
+{
+  "name": "skills",
+  "owner": {
+    "name": "nhooey"
+  },
+  "plugins": [
+    {
+      "name": "skills",
+      "source": ".",
+      "description": "Agent skills collection. Skills are auto-discovered from ./skills/*."
+    }
+  ]
+}
