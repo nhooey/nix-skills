@@ -118,7 +118,7 @@ perSystem = { ... }: {
 };
 ```
 
-The flake's `formatter.${system}` is set automatically, so `nix fmt` just works. Avoid hand-rolled `find . -name '*.nix' | xargs nixfmt` — see [Touching files in the repo](#touching-files-in-the-repo).
+The flake's `formatter.${system}` is set automatically, so `nix fmt` just works. Avoid hand-rolled `find . -name '*.nix' | while read -r f; do nixfmt "$f"; done` — see [Touching files in the repo](#touching-files-in-the-repo).
 
 ## Checks
 
@@ -129,7 +129,7 @@ Wire formatters, linters, and tests as `checks.${system}` so `nix flake check` i
 When a script or dev-shell command needs to enumerate files in the repo, **default to `git ls-files`** rather than `find`:
 
 ```sh
-git ls-files -z '*.nix' | xargs -0 nixfmt
+git ls-files -z '*.nix' | while IFS= read -rd '' f; do nixfmt "$f"; done
 ```
 
 Why: a Nix flake is inherently version-control-aware (the flake itself only sees git-tracked files at evaluation time), so commands that operate on "the project" should match. `find` will silently descend into `node_modules/`, `.git/`, `result-*` symlinks, untracked scratch files, and anything else lying around. `git ls-files` only sees what's tracked, which is almost always what you want. It's also faster.
@@ -138,7 +138,7 @@ Common patterns:
 
 ```sh
 git ls-files '*.nix'                                 # tracked .nix files
-git ls-files -z | xargs -0 -I{} sh -c '...' _ {}     # null-safe iteration
+git ls-files -z | while IFS= read -rd '' f; do sh -c '...' _ "$f"; done   # null-safe iteration
 git ls-files -co --exclude-standard '*.nix'          # tracked + untracked, but not gitignored
 ```
 
