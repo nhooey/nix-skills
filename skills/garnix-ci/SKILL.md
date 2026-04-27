@@ -65,6 +65,16 @@ Then:
   subtree, or several sibling flakes) → list them and ask the same
   update question per file.
 
+After (or during) the `garnix.yaml` decision, also inventory the project's
+**test suite**: detect the language(s) (look for `pyproject.toml`,
+`package.json`, `go.mod`, `Cargo.toml`, `deps.edn`, `*.bats`, etc.) and
+check whether the existing tests are exposed as `flake.checks.<sys>.<name>`
+derivations. If they're not, the `checks.*` lines in `garnix.yaml` enforce
+nothing. Propose wiring them up — see "Wiring the project's test suite
+into `flake.checks`" below for the shape and grouping decision. This is a
+flake-level change, not a `garnix.yaml` change, so it's a separate ask
+than the yaml edit.
+
 This is a *convention*, not a hook — it relies on you noticing that the skill
 was invoked. Treat the create-vs-update decision as the very first thing to do
 after reading this file.
@@ -195,6 +205,131 @@ expose only specific subtrees <sup>[[actions]](#ref-actions)</sup>.
 
 A `flakeDir` field at the top level of `garnix.yaml` lets you point at a
 flake somewhere other than the repo root <sup>[[yaml]](#ref-yaml)</sup>.
+
+## Wiring the project's test suite into `flake.checks`
+
+Listing `checks.<sys>.*` in `garnix.yaml` is necessary but not sufficient —
+those patterns enforce nothing if the flake's `checks` attrset is empty
+<sup>[[yaml]](#ref-yaml)</sup>. To get Garnix to gate PRs on the project's
+real tests, the test invocation has to live inside a Nix derivation under
+`flake.checks.<sys>.<name>`. Each such derivation surfaces in the GitHub
+Checks UI as `check <name> [<system>]` <sup>[[obs]](#ref-obs)</sup>.
+
+### The shape
+
+A check is just a derivation that fails the build (non-zero exit, or no
+`$out`) when tests fail. The simplest wrapper is `pkgs.runCommand`:
+
+```nix
+# flake.nix (sketch)
+checks = forAllSystems (system: let
+  pkgs = nixpkgs.legacyPackages.${system};
+in {
+  tests-unit = pkgs.runCommand "tests-unit" {
+    nativeBuildInputs = [ pkgs.python3 pkgs.python3Packages.pytest ];
+    src = self;
+  } ''
+    cp -r $src/* .
+    pytest tests/unit -v
+    touch $out
+  '';
+});
+```
+
+It runs in the Nix sandbox <sup>[[actions]](#ref-actions)</sup> — **no
+network, no `/proc` mount, no nested containers**. Tests that need any of
+those belong as Actions instead (see "The load-bearing distinction" above).
+
+### Per-language idioms
+
+| Language | Test runner | Idiomatic Nix wrapper |
+|---|---|---|
+| Python | pytest | `runCommand` with `python3.withPackages (p: [ p.pytest p.<deps> ])`; or `buildPythonPackage` with `nativeCheckInputs = [ pytest ]` |
+| Node | jest, vitest, mocha | Hard mode — npm install needs network. Use `pkgs.buildNpmPackage` (lockfile-driven, sandbox-safe) and put the test command in `checkPhase` |
+| Go | `go test ./...` | `pkgs.buildGoModule { doCheck = true; }` runs the suite in `checkPhase` automatically — no extra wrapping needed |
+| Rust | `cargo test` | `pkgs.rustPlatform.buildRustPackage { doCheck = true; }` — same pattern as Go |
+| Clojure | kaocha, clojure.test | clj-nix's `mkCljApp`; tests via a separate `runCommand` invoking `bin/kaocha`. Tag network tests with kaocha metadata so they route to Actions |
+| Bash / shell | bats | `runCommand` with `pkgs.bats` and a `bats tests/` invocation |
+| Nix itself | `lib.runTests` | `runCommand` that runs `lib.runTests` and asserts the result is `[]` |
+| Treefmt / formatters | treefmt-nix | `treefmt-nix` exposes `flake.checks.<sys>.treefmt` directly — wire it once, free formatting check |
+
+For language packaging conventions in flakes (toolchain pinning, override
+patterns, deps lockfiles), the sibling `nix-flakes`, `nix-clojure`,
+`nix-java` skills cover the project-side details. This skill cares about
+the *check derivation* boundary.
+
+### Grouping — when to split, when to merge
+
+Each `flake.checks.<sys>.<name>` becomes one row in the GitHub Checks UI
+and one Garnix builder allocation. Both have fixed cost (Nix evaluation +
+runner provisioning, ~5–15s per check <sup>[[obs]](#ref-obs)</sup>), so
+naive sharding makes the suite slower, not faster.
+
+Default to **one check per logical test partition** — not one per file,
+not one per test:
+
+- **Slow vs fast** is the most common useful split: `tests-unit` and
+  `tests-integration` (or `tests-fast` / `tests-slow`). Lets a re-run on a
+  flake of the slow suite skip re-running the fast one.
+- **Per top-level package** in a monorepo, when each package's tests are
+  independent and individually meaningful (>30s each). Matches how
+  developers run them locally.
+- **Per language** if the project is polyglot (e.g. `tests-python`,
+  `tests-clojure`). Keeps failures legible.
+- **Sandbox vs Action partition** is a hard split: pure tests stay in
+  `flake.checks`, network/container tests move to `flake.apps` and run as
+  Actions. Use the test runner's existing tag system as the boundary —
+  pytest markers, kaocha metadata, Go build tags, Rust `#[cfg(test)]` with
+  feature flags — so reclassifying a single test is one annotation, not a
+  flake refactor.
+- **Formatting and linting** as their own checks (`treefmt`, `clj-kondo`,
+  `eslint`, `ruff`) — they fail differently from tests and reviewers want
+  to know which kind of red they're looking at.
+
+Don't split when:
+
+- The whole suite finishes in <2 minutes — one `tests` check is fine, the
+  UI noise from sharding outweighs any parallelism win.
+- The runner already does intra-suite parallelism (`pytest-xdist`,
+  `cargo test --jobs N`, `go test ./...`). Splitting at the Nix level on
+  top is double-counting and usually a wash.
+- Tests share expensive setup (database fixtures, JVM warmup, large
+  artifact loads). Splitting forces the setup to repeat per check; merge
+  instead.
+
+Do split when:
+
+- One file or module dominates wall time (e.g. a 15-minute suite where
+  one file accounts for 12 minutes). Isolate the slow one so flake re-runs
+  don't redo cheap work.
+- The same code paths run in multiple modes you want surfaced separately
+  (e.g. `tests-pg` vs `tests-sqlite`, `tests-jvm17` vs `tests-jvm21`).
+
+Avoid:
+
+- A check per individual test case. Nix won't help; the check-suite UI
+  becomes unscannable.
+- Sharding by hash bucket (`tests-shard-1` … `tests-shard-N`). Buckets
+  obscure what failed, lose the slow-vs-fast signal, and rarely beat the
+  test runner's own parallelism.
+
+### Make the check required
+
+Once `flake.checks.<sys>.<name>` is wired up and matches your
+`garnix.yaml` `checks.*` include pattern, it appears as `check <name>
+[<system>]` on every PR <sup>[[obs]](#ref-obs)</sup>. To actually gate
+merges, mark it as required in branch protection:
+
+```bash
+# List current required checks
+gh api "repos/<owner>/<repo>/branches/<branch>/protection/required_status_checks" \
+  --jq '.contexts'
+```
+
+Garnix's umbrella roll-up is `All Garnix checks` — making *that* required
+gates on the whole suite without naming each check individually
+<sup>[[obs]](#ref-obs)</sup>, and survives adding/renaming checks without
+re-editing branch protection.
 
 ## Step 2 — install the GitHub App
 
