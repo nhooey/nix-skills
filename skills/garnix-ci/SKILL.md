@@ -153,6 +153,99 @@ If you can't see Garnix check-suites after a push, the install is probably
 not scoped to this repo — re-check the user's app installation settings
 <sup>[[obs]](#ref-obs)</sup>.
 
+### Detecting install state programmatically
+
+There is no way to ask "is Garnix installed and scoped to this repo?" with a
+classic `gh` user PAT. Every endpoint that exposes the answer requires
+either a GitHub App JWT or an installation access token
+<sup>[[apps-rest]](#ref-apps-rest)</sup>:
+
+| Endpoint | Auth required | Result with classic user PAT |
+|---|---|---|
+| `GET /user/installations` | App user-to-server token | 403 "must authenticate as a GitHub App" <sup>[[obs]](#ref-obs)</sup> |
+| `GET /user/installations/<id>/repositories` | App user-to-server token | 403 even after `gh auth refresh -s read:user,user` <sup>[[obs]](#ref-obs)</sup> |
+| `GET /installation/repositories` | Installation access token | 403 "must authenticate with an installation access token" <sup>[[obs]](#ref-obs)</sup> |
+| `GET /repos/<owner>/<repo>/installation` | App JWT | 401 "JSON web token could not be decoded" <sup>[[obs]](#ref-obs)</sup> |
+
+The `gh` CLI's "needs the X scope" hint on these 403s is misleading — adding
+the scope it suggests still produces a 403, just with a different "must
+authenticate as a GitHub App" message. Don't keep chasing scopes.
+
+### Workable monitoring approaches
+
+1. **Push, then poll check-suites for the `garnix-ci` slug.** The only
+   API-driven signal a classic user PAT can read:
+
+   ```bash
+   SHA=$(git rev-parse HEAD); REPO=<owner>/<repo>
+   gh api "repos/$REPO/commits/$SHA/check-suites" \
+     --jq '[.check_suites[] | select(.app.slug=="garnix-ci")] | length'
+   ```
+
+   `0` → not installed (or not scoped, or webhook hasn't fired yet);
+   `>0` → Garnix has accepted this commit. If the answer is `0` after
+   ~30s on a fresh push, the most likely cause is "installed at the user
+   level but this repo isn't selected". Pre-install commits are not
+   retroactively built — push an empty commit *after* the install is
+   scoped (Step 3) to fire a webhook the new install can see
+   <sup>[[obs]](#ref-obs)</sup>.
+
+2. **Background install-watcher.** When you can run a long-lived watcher
+   (the harness's Monitor tool, a tmux pane, etc.), poll the repo's HEAD
+   commit for a `garnix-ci` suite on a 60s cadence and emit on the
+   transition from absent to present. Skeleton:
+
+   ```bash
+   REPO=<owner>/<repo>; LAST_HB=$(date +%s)
+   while true; do
+     HEAD=$(gh api "repos/$REPO/commits" --jq '.[0].sha' 2>/dev/null)
+     [ -z "$HEAD" ] && { sleep 60; continue; }
+     HAS=$(gh api "repos/$REPO/commits/$HEAD/check-suites" \
+       --jq '[.check_suites[] | select(.app.slug=="garnix-ci")] | length' 2>/dev/null)
+     if [ "${HAS:-0}" -gt 0 ]; then
+       echo "GARNIX_DETECTED head=$HEAD"; exit 0
+     fi
+     NOW=$(date +%s)
+     if [ "$((NOW - LAST_HB))" -gt 300 ]; then
+       echo "heartbeat: still no garnix-ci on $HEAD at $(date -u +%H:%M:%SZ)"
+       LAST_HB=$NOW
+     fi
+     sleep 60
+   done
+   ```
+
+   Emit a heartbeat every ~5 min so the monitor isn't silent during a
+   long wait — silence is indistinguishable from a crashed watcher
+   <sup>[[obs]](#ref-obs)</sup>. If the user installs but does not push,
+   the watcher will stay silent forever; pair it with an explicit
+   "tell me when you've installed" instruction or an empty-commit
+   retry on a slow cadence (e.g. every 15 min) so installation always
+   gets tested.
+
+3. **Have the user confirm in-band.** No automation; they say "installed",
+   you push an empty commit and start the per-run monitor (Step 5 watch
+   loop). Faster and more reliable when the user is interactive.
+
+4. **Prefilled install URL.** Generate a one-click link that prefills the
+   repo selector so the user doesn't navigate manually:
+
+   ```bash
+   read -r owner_id repo_id < <(gh api "repos/<owner>/<repo>" \
+     --jq '[.owner.id, .id] | @tsv')
+   echo "https://github.com/apps/garnix-ci/installations/new/permissions?target_id=${owner_id}&repository_ids[]=${repo_id}"
+   ```
+
+   `target_id` is the owner's numeric ID; `repository_ids[]` (the `[]`
+   is part of the query-string key) prefills the repo selection. The
+   same URL pattern works to *add* a repo to an existing installation,
+   not just to create new ones <sup>[[obs]](#ref-obs)</sup>.
+
+5. **Don't bother with fine-grained PATs for this.** They expose a
+   "GitHub Apps installations" permission category, but the listing
+   endpoints remain gated on app-context auth in practice. Treat as
+   last resort and verify on a throwaway fine-grained PAT before
+   automating around it.
+
 ## Step 3 — fire the first build
 
 **Gotcha:** Garnix only builds commits pushed *after* the install webhook
@@ -583,3 +676,11 @@ before relying on a fact for a production decision.
 - **Source:** https://shields.io/badges/endpoint-badge
 - **Last verified:** 2026-04-25.
 - **Re-verify:** Fetch the URL if endpoint URL conventions change (e.g., `endpoint.svg` vs `endpoint`).
+
+<a id="ref-apps-rest"></a>
+
+### `[apps-rest]` — GitHub Apps REST API authentication
+
+- **Source:** https://docs.github.com/en/rest/apps/installations
+- **Last verified:** 2026-04-27.
+- **Re-verify:** Fetch the URL; confirm the listing endpoints (`/user/installations`, `/user/installations/{id}/repositories`, `/installation/repositories`, `/repos/{owner}/{repo}/installation`) still require GitHub App authentication (JWT or installation token), not user PATs. If GitHub adds a fine-grained PAT scope that genuinely unlocks the listing endpoints, update Workable monitoring approaches #5 to a positive recommendation.
