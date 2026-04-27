@@ -131,6 +131,24 @@ selection. There is no API or CLI to install a GitHub App on someone else's
 behalf <sup>[[obs]](#ref-obs)</sup> — GitHub's permissions flow requires
 interactive OAuth.
 
+### Already installed but not scoped to this repo
+
+If Garnix is already installed on the account but the new repo isn't
+covered by the install (common with "Only select repositories"), the user
+needs to add it. They can't grant access from the API either — same OAuth
+constraint <sup>[[obs]](#ref-obs)</sup>.
+
+- **User account installs:** list all installations at https://github.com/settings/installations <sup>[[obs]](#ref-obs)</sup>, then click into "Garnix CI". The per-installation URL is `https://github.com/settings/installations/<install-id>` <sup>[[obs]](#ref-obs)</sup> — but the `<install-id>` is account-specific (e.g. `126117906` for one observed user), so don't share a hardcoded link with someone else; send them through `/settings/installations` and let them click in.
+- **Org installs:** the equivalent listing lives at `https://github.com/organizations/<org>/settings/installations` <sup>[[obs]](#ref-obs)</sup>.
+- **Web nav path:** `[user avatar] > Settings > Integrations > Applications > Garnix CI` <sup>[[obs]](#ref-obs)</sup>.
+
+On the Garnix CI install page, under **Repository access**, pick either
+**All repositories** or **Only select repositories** and add the new repo,
+then click **Save** <sup>[[obs]](#ref-obs)</sup>. After saving, push a new
+commit (an empty commit is fine — see Step 3) to fire a webhook for the
+just-scoped repo; existing commits aren't backfilled
+<sup>[[obs]](#ref-obs)</sup>.
+
 If you can't see Garnix check-suites after a push, the install is probably
 not scoped to this repo — re-check the user's app installation settings
 <sup>[[obs]](#ref-obs)</sup>.
@@ -417,6 +435,7 @@ GitHub Actions. The runs do **not** appear in the Actions tab
 | Symptom | Cause | Fix | Source |
 |---|---|---|---|
 | No Garnix check-suite ever appears | App not installed on this repo | User installs at https://github.com/apps/garnix-ci/installations/new | <sup>[[app]](#ref-app)</sup> |
+| App installed on the account but new repo not building | Install was scoped to "Only select repositories" and this repo isn't in the set | User goes to https://github.com/settings/installations → Garnix CI → Repository access → add the repo → Save, then pushes a new commit | <sup>[[obs]](#ref-obs)</sup> |
 | Suite created but only `semaphore-ci-cd` etc. show, no Garnix | Same as above (other GitHub Apps are unrelated) | Same as above | <sup>[[obs]](#ref-obs)</sup> |
 | Check-suite shows `success` but check-runs query is empty | Polling raced a fast (~30s) build between intervals | Lengthen poll window OR also fetch `/check-suites` and trust the suite-level conclusion | <sup>[[obs]](#ref-obs)</sup> |
 | Badge image broken on GitHub | Using raw `garnix.io/api/badges/...` (returns JSON) | Wrap through `img.shields.io/endpoint.svg?url=...` | <sup>[[badges]](#ref-badges)</sup> <sup>[[obs]](#ref-obs)</sup> |
