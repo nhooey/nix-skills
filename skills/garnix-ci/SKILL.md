@@ -13,6 +13,62 @@ Actions** with network and tools <sup>[[actions]](#ref-actions)</sup>.
 Surfaces results via the GitHub Checks API
 <sup>[[checks-api]](#ref-checks-api)</sup> — no `.github/workflows/` file.
 
+## On load — what to do *before* explaining anything
+
+When this skill is invoked, treat it as a request to act on the current repo,
+not just to recite conventions. Inventory the repo's Garnix configuration
+state:
+
+```sh
+git ls-files 'garnix.yaml' '**/garnix.yaml'
+# also untracked, in case the user is mid-creation:
+git ls-files -o --exclude-standard 'garnix.yaml' '**/garnix.yaml'
+```
+
+Then:
+
+- **No `garnix.yaml` found → create one immediately, without asking.** The
+  user invoked this skill from inside a repo that has none; the obvious next
+  step is to author one. Look at the flake outputs available
+  (`nix flake show --all-systems --no-write-lock-file 2>/dev/null` is the
+  cheapest way) and write a `garnix.yaml` at the repo root with explicit
+  `builds.include` patterns covering exactly the system / output combinations
+  the flake actually defines. **Default to all four arches**
+  (`x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, `aarch64-darwin`) for
+  whichever output classes the flake exposes — typically
+  `checks.{x86_64,aarch64}-{linux,darwin}.*`,
+  `devShells.{x86_64,aarch64}-{linux,darwin}.default`, and
+  `packages.{x86_64,aarch64}-{linux,darwin}.*`. Garnix builds Darwin attrs
+  (confirmed for `packages.*-darwin.*` outputs <sup>[[obs]](#ref-obs)</sup>),
+  so omitting the Darwin pair leaves a hole in coverage that bites the next
+  contributor on an M-series Mac. Drop a Darwin row only if the flake
+  doesn't define that system at all (e.g. an output gated by `system ==
+  "x86_64-linux"`), or if the user has explicitly said they don't want
+  Darwin builds. After writing, remind the user that:
+  1. Garnix only fires on commits pushed *after* the GitHub App is installed
+     and scoped to the repo (Step 3); if the App isn't already installed they
+     need to install it at https://github.com/apps/garnix-ci/installations/new
+     — you cannot do this for them.
+  2. The README badge, if any, must use the `img.shields.io/endpoint.svg?url=…`
+     wrapper, not the raw `garnix.io/api/badges/…` URL (Step 4).
+
+- **`garnix.yaml` exists → ask whether to update it to follow these
+  conventions, don't silently rewrite.** Print the path(s), summarise what's
+  there (raw `builds.include` / `builds.exclude` / `actions` / `flakeDir`
+  shape), and ask whether to bring it into line with this skill (explicit
+  include patterns, no reliance on the default include set, Action bodies
+  factored into `nix/garnix.nix`, badge wrapper in the README, etc.). Accept
+  "yes / no / specific changes only" and only edit the file if the user
+  green-lit it. Do not touch a working CI configuration without permission.
+
+- **Multiple `garnix.yaml` files** (rare — monorepo with `flakeDir` per
+  subtree, or several sibling flakes) → list them and ask the same
+  update question per file.
+
+This is a *convention*, not a hook — it relies on you noticing that the skill
+was invoked. Treat the create-vs-update decision as the very first thing to do
+after reading this file.
+
 > **Reference durability:** Each non-trivial claim below carries a clickable
 > superscript link to its source in the [References & verification](#references--verification)
 > section (Garnix docs, observed behavior in this repo, or the author's
@@ -63,25 +119,42 @@ If you ship no `garnix.yaml`, Garnix builds:
 
 So Darwin-system NixOS-style configurations **are** in the default set, and
 `packages.aarch64-darwin.*` appears in the docs' include examples
-<sup>[[yaml]](#ref-yaml)</sup>. The exact builder coverage for Darwin attrs vs
-Linux attrs is not spelled out in the public docs — re-verify against
-`/docs/ci/yaml_config/` if your project relies on actual aarch64-darwin or
-x86_64-darwin builds rather than just evaluating Darwin configurations.
+<sup>[[yaml]](#ref-yaml)</sup>. Garnix does build arbitrary
+`packages.*-darwin.*` and `checks.*-darwin.*` outputs in practice
+<sup>[[obs]](#ref-obs)</sup> — earlier ambiguity was about how exhaustive the
+docs were, not whether Darwin works. Treat full four-arch coverage as the
+default; verify against `/docs/ci/yaml_config/` only if you hit a
+specifically odd attr (e.g. cross-system or IFD-heavy) that won't build.
 
 ### Explicit configuration
+
+Cover all four arches by default (`x86_64-linux`, `aarch64-linux`,
+`x86_64-darwin`, `aarch64-darwin`). The Darwin builders are real and free —
+skipping them leaves M-series and Intel Mac contributors without coverage.
 
 ```yaml
 builds:
   include:
     - "packages.x86_64-linux.*"
     - "packages.aarch64-linux.*"
+    - "packages.x86_64-darwin.*"
+    - "packages.aarch64-darwin.*"
     - "checks.x86_64-linux.*"
     - "checks.aarch64-linux.*"
+    - "checks.x86_64-darwin.*"
+    - "checks.aarch64-darwin.*"
     - "devShells.x86_64-linux.default"
     - "devShells.aarch64-linux.default"
+    - "devShells.x86_64-darwin.default"
+    - "devShells.aarch64-darwin.default"
     - "homeManagerModules.default"
   exclude: []
 ```
+
+Drop a Darwin row only when the flake actually doesn't expose that system
+(e.g. NixOS-only outputs, or a derivation gated by `system ==
+"x86_64-linux"`); listing an attr that doesn't exist will fail evaluation
+<sup>[[obs]](#ref-obs)</sup>.
 
 A coarser `'*.x86_64-linux.*'` works too if you want everything for a system
 <sup>[[yaml]](#ref-yaml)</sup>. Patterns are flake output paths with `*`
@@ -534,7 +607,7 @@ GitHub Actions. The runs do **not** appear in the Actions tab
 | Badge image broken on GitHub | Using raw `garnix.io/api/badges/...` (returns JSON) | Wrap through `img.shields.io/endpoint.svg?url=...` | <sup>[[badges]](#ref-badges)</sup> <sup>[[obs]](#ref-obs)</sup> |
 | Pre-install commits not built | Garnix only triggers on post-install webhook events | Push an empty commit to fire the webhook | <sup>[[obs]](#ref-obs)</sup> |
 | Check is consistently "still running" with no log progress | Likely a silent OOM near the 4.5 GB ceiling | Inspect last cached output; restructure to use prebuilt artifacts | <sup>[[notes]](#ref-notes)</sup> |
-| Darwin attrs go unbuilt despite being in the include set | Builder coverage for Darwin systems may be partial; docs are ambiguous | Verify against `/docs/ci/yaml_config/` and a probe build before depending on it | <sup>[[yaml]](#ref-yaml)</sup> |
+| A specific Darwin attr won't build despite being in the include set | The output is gated to a non-Darwin system, requires IFD that the Darwin builder rejects, or simply doesn't exist for that arch | Confirm the attr resolves locally with `nix eval .#packages.<sys>.<name>.outPath`; if it does, file a probe and verify against `/docs/ci/yaml_config/` | <sup>[[yaml]](#ref-yaml)</sup> |
 
 ## Watch-loop snippet (for autonomous monitoring)
 
