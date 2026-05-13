@@ -1,6 +1,6 @@
 ---
 name: nix-garnix-ci
-description: Wire up Garnix CI for a Nix flake on GitHub. Covers the basics (garnix.yaml, GitHub App install, badge wrapper, gh CLI verification) and the advanced surface (Actions vs sandbox checks, rootless podman in actions, runner constraints, action sizing, yaml-from-nix regeneration). Use when adding CI to a flake, fixing a broken Garnix badge, writing Actions that need network or containers, or debugging mysterious runner constraints.
+description: Wire up Garnix CI for a Nix flake on GitHub. Covers the basics (garnix.yaml scope prompts for arches + branches, GitHub App install, badge wrapper, gh CLI verification) and the advanced surface (Actions vs sandbox checks, rootless podman in actions, runner constraints, action sizing, yaml-from-nix regeneration). Use when adding CI to a flake, fixing a broken Garnix badge, writing Actions that need network or containers, or debugging mysterious runner constraints.
 ---
 
 # Garnix CI for a Nix flake
@@ -39,16 +39,84 @@ an **Action**, not a check <sup>[[actions]](#ref-actions)</sup>.
 
 ## Quick checklist (basic flake, no Actions)
 
-1. Drop a `garnix.yaml` at repo root with explicit include patterns <sup>[[yaml]](#ref-yaml)</sup>.
-2. User installs the [Garnix GitHub App](https://github.com/apps/garnix-ci/installations/new) on the repo <sup>[[app]](#ref-app)</sup> (you cannot do this for them <sup>[[obs]](#ref-obs)</sup>).
-3. Push a commit *after* the install. Pre-install commits are not retroactively built <sup>[[obs]](#ref-obs)</sup>.
-4. Add the badge using the **shields.io endpoint wrapper** <sup>[[badges]](#ref-badges)</sup> (raw `garnix.io/api/badges/...` returns JSON, not SVG <sup>[[obs]](#ref-obs)</sup>).
-5. Verify with `gh api repos/<owner>/<repo>/commits/<sha>/check-suites` and `/check-runs` <sup>[[checks-api]](#ref-checks-api)</sup>.
+1. Before writing `garnix.yaml`, confirm two scope choices with the user — **architectures to build** (default to the host arch) and **branches to build on** (default to the default branch) — see "Decisions to confirm" under Step 1. Both directly affect Garnix minute consumption.
+2. Drop a `garnix.yaml` at repo root with explicit include patterns <sup>[[yaml]](#ref-yaml)</sup>.
+3. User installs the [Garnix GitHub App](https://github.com/apps/garnix-ci/installations/new) on the repo <sup>[[app]](#ref-app)</sup> (you cannot do this for them <sup>[[obs]](#ref-obs)</sup>).
+4. Push a commit *after* the install. Pre-install commits are not retroactively built <sup>[[obs]](#ref-obs)</sup>.
+5. Add the badge using the **shields.io endpoint wrapper** <sup>[[badges]](#ref-badges)</sup> (raw `garnix.io/api/badges/...` returns JSON, not SVG <sup>[[obs]](#ref-obs)</sup>).
+6. Verify with `gh api repos/<owner>/<repo>/commits/<sha>/check-suites` and `/check-runs` <sup>[[checks-api]](#ref-checks-api)</sup>.
 
 For Actions (network/containers/long-running scripts), see "Writing Actions"
 below.
 
 ## Step 1 — `garnix.yaml`
+
+### Decisions to confirm with the user before writing the file
+
+Two scope decisions directly burn Garnix minutes and have no good default in
+the abstract — prompt the user before generating `garnix.yaml`.
+
+**1. Which architectures to build for.** "Host arch" here means **the arch of
+the system running the checks** — i.e., the Garnix builder, not the developer's
+laptop. Garnix runs its own builder pool with separate machines per arch; a
+project's `uname -sm` on the dev machine tells you nothing about what Garnix
+should build.
+
+The right default is **`x86_64-linux`**: it's the arch Garnix's own default
+include set targets when no `garnix.yaml` is present
+<sup>[[yaml]](#ref-yaml)</sup>, and it matches the deploy target for most
+server projects. Each additional arch in `builds.include` (e.g., adding
+`aarch64-linux`, `aarch64-darwin`, `x86_64-darwin`) provisions a separate
+Garnix builder per build and roughly multiplies minute consumption. Only opt
+in to more arches when the project actually ships binaries to those targets
+(Mac app → `aarch64-darwin`, ARM Linux deploy → `aarch64-linux`, etc.).
+
+For context only, you can detect the dev machine's arch with `uname -sm`
+(`Darwin arm64 → aarch64-darwin`, `Linux x86_64 → x86_64-linux`, etc.) — but
+don't anchor the recommendation on it. Phrase the prompt as:
+
+> "Which arches does this project run on in production? `x86_64-linux` is
+> Garnix's default and cheapest builder and is right for most server
+> projects. Add `aarch64-darwin`/`x86_64-darwin` only if you ship Mac
+> binaries, `aarch64-linux` only if you deploy to ARM Linux."
+
+**2. Which branches to build on.** By default Garnix builds **every push to
+every branch**, including PR branches
+<sup>[[getting-started]](#ref-getting-started)</sup>. The `builds.branch` key
+restricts this <sup>[[yaml]](#ref-yaml)</sup>:
+
+```yaml
+builds:
+  branch: main         # only builds on pushes to `main`
+  include: [...]
+```
+
+Detect the git host first so the prompt names the right workflow events:
+
+```bash
+git remote -v | awk 'NR==1 {print $2}'
+```
+
+- **GitHub** (`github.com`) — Garnix is a GitHub App
+  <sup>[[app]](#ref-app)</sup>, so triggers are GitHub events. With
+  `branch: <default>` you get a build on each push to the default branch
+  **and** on the merge commit that lands when a PR is merged (because the
+  merge commit *is* a push to the default branch). PR branches themselves
+  get **no pre-merge CI** under this restriction — call this trade-off out
+  explicitly, since most teams want PR feedback.
+- **GitLab / Bitbucket / other** — Garnix is currently GitHub-only
+  <sup>[[app]](#ref-app)</sup>. If no remote points at `github.com`, stop
+  and tell the user Garnix won't work here.
+
+Phrase the prompt as:
+
+> "Restrict builds to `<default-branch>` only, or build on every branch
+> including PR pushes?
+> – Default-branch only: builds run on pushes to `<default-branch>` and on
+>   the merge commit when a PR lands. No pre-merge PR CI. Saves Garnix
+>   minutes.
+> – Every branch (Garnix default): builds run on every push, including PR
+>   branch updates. Full PR feedback, higher minute usage."
 
 ### Default include set <sup>[[yaml]](#ref-yaml)</sup>
 
