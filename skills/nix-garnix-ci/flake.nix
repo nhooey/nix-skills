@@ -1,5 +1,5 @@
 {
-  description = "garnix-ci: Claude Code skill for wiring up Garnix CI on a Nix flake";
+  description = "nix-garnix-ci: Claude Code skill for wiring up Garnix CI on a Nix flake";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -10,7 +10,7 @@
   outputs = { nixpkgs, flake-skills, ... }:
     flake-skills.lib.mkSkillFlake {
       inherit nixpkgs;
-      skillName = "garnix-ci";
+      skillName = "nix-garnix-ci";
       src = ./.;
     };
 }

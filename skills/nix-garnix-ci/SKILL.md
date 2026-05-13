@@ -1,5 +1,5 @@
 ---
-name: garnix-ci
+name: nix-garnix-ci
 description: Wire up Garnix CI for a Nix flake on GitHub. Covers the basics (garnix.yaml, GitHub App install, badge wrapper, gh CLI verification) and the advanced surface (Actions vs sandbox checks, rootless podman in actions, runner constraints, action sizing, yaml-from-nix regeneration). Use when adding CI to a flake, fixing a broken Garnix badge, writing Actions that need network or containers, or debugging mysterious runner constraints.
 ---
 
