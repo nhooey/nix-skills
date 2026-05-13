@@ -13,6 +13,62 @@ Actions** with network and tools <sup>[[actions]](#ref-actions)</sup>.
 Surfaces results via the GitHub Checks API
 <sup>[[checks-api]](#ref-checks-api)</sup> — no `.github/workflows/` file.
 
+## On load — what to do *before* explaining anything
+
+When this skill is invoked, treat it as a request to act on the current repo,
+not just to recite conventions. Inventory the repo's Garnix configuration
+state:
+
+```sh
+git ls-files 'garnix.yaml' '**/garnix.yaml'
+# also untracked, in case the user is mid-creation:
+git ls-files -o --exclude-standard 'garnix.yaml' '**/garnix.yaml'
+```
+
+Then:
+
+- **No `garnix.yaml` found → confirm scope with the user, then author one.**
+  The user invoked this skill from inside a repo that has none; the obvious
+  next step is to write one. Look at the flake outputs available
+  (`nix flake show --all-systems --no-write-lock-file 2>/dev/null` is the
+  cheapest way) and write a `garnix.yaml` at the repo root with explicit
+  `builds.include` patterns covering exactly the system / output combinations
+  the flake actually defines, restricted to the arches the user said they
+  target. After writing, remind the user that:
+  1. Garnix only fires on commits pushed *after* the GitHub App is installed
+     and scoped to the repo (Step 3); if the App isn't already installed they
+     need to install it at https://github.com/apps/garnix-ci/installations/new
+     — you cannot do this for them.
+  2. The README badge, if any, must use the `img.shields.io/endpoint.svg?url=…`
+     wrapper, not the raw `garnix.io/api/badges/…` URL (Step 4).
+
+- **`garnix.yaml` exists → ask whether to update it to follow these
+  conventions, don't silently rewrite.** Print the path(s), summarise what's
+  there (raw `builds.include` / `builds.exclude` / `actions` / `flakeDir`
+  shape), and ask whether to bring it into line with this skill (explicit
+  include patterns, no reliance on the default include set, Action bodies
+  factored into `nix/garnix.nix`, badge wrapper in the README, etc.). Accept
+  "yes / no / specific changes only" and only edit the file if the user
+  green-lit it. Do not touch a working CI configuration without permission.
+
+- **Multiple `garnix.yaml` files** (rare — monorepo with `flakeDir` per
+  subtree, or several sibling flakes) → list them and ask the same
+  update question per file.
+
+After (or during) the `garnix.yaml` decision, also inventory the project's
+**test suite**: detect the language(s) (look for `pyproject.toml`,
+`package.json`, `go.mod`, `Cargo.toml`, `deps.edn`, `*.bats`, etc.) and
+check whether the existing tests are exposed as `flake.checks.<sys>.<name>`
+derivations. If they're not, the `checks.*` lines in `garnix.yaml` enforce
+nothing. Propose wiring them up — see "Wiring the project's test suite
+into `flake.checks`" below for the shape and grouping decision. This is a
+flake-level change, not a `garnix.yaml` change, so it's a separate ask
+than the yaml edit.
+
+This is a *convention*, not a hook — it relies on you noticing that the skill
+was invoked. Treat the create-vs-update decision as the very first thing to do
+after reading this file.
+
 > **Reference durability:** Each non-trivial claim below carries a clickable
 > superscript link to its source in the [References & verification](#references--verification)
 > section (Garnix docs, observed behavior in this repo, or the author's
@@ -63,25 +119,31 @@ If you ship no `garnix.yaml`, Garnix builds:
 
 So Darwin-system NixOS-style configurations **are** in the default set, and
 `packages.aarch64-darwin.*` appears in the docs' include examples
-<sup>[[yaml]](#ref-yaml)</sup>. The exact builder coverage for Darwin attrs vs
-Linux attrs is not spelled out in the public docs — re-verify against
-`/docs/ci/yaml_config/` if your project relies on actual aarch64-darwin or
-x86_64-darwin builds rather than just evaluating Darwin configurations.
+<sup>[[yaml]](#ref-yaml)</sup>. Garnix does build arbitrary
+`packages.*-darwin.*` and `checks.*-darwin.*` outputs in practice
+<sup>[[obs]](#ref-obs)</sup> — earlier ambiguity was about how exhaustive the
+docs were, not whether Darwin works. Verify against `/docs/ci/yaml_config/`
+if you hit a specifically odd attr (e.g. cross-system or IFD-heavy) that
+won't build.
 
 ### Explicit configuration
+
+List one row per `(output-class, arch)` pair the user actually targets.
+Example for an `x86_64-linux`-only project:
 
 ```yaml
 builds:
   include:
     - "packages.x86_64-linux.*"
-    - "packages.aarch64-linux.*"
     - "checks.x86_64-linux.*"
-    - "checks.aarch64-linux.*"
     - "devShells.x86_64-linux.default"
-    - "devShells.aarch64-linux.default"
     - "homeManagerModules.default"
   exclude: []
 ```
+
+Listing an attr that doesn't exist for the target arch will fail evaluation
+<sup>[[obs]](#ref-obs)</sup>, so only include arch / output combinations
+the flake actually exposes.
 
 A coarser `'*.x86_64-linux.*'` works too if you want everything for a system
 <sup>[[yaml]](#ref-yaml)</sup>. Patterns are flake output paths with `*`
@@ -123,6 +185,131 @@ expose only specific subtrees <sup>[[actions]](#ref-actions)</sup>.
 A `flakeDir` field at the top level of `garnix.yaml` lets you point at a
 flake somewhere other than the repo root <sup>[[yaml]](#ref-yaml)</sup>.
 
+## Wiring the project's test suite into `flake.checks`
+
+Listing `checks.<sys>.*` in `garnix.yaml` is necessary but not sufficient —
+those patterns enforce nothing if the flake's `checks` attrset is empty
+<sup>[[yaml]](#ref-yaml)</sup>. To get Garnix to gate PRs on the project's
+real tests, the test invocation has to live inside a Nix derivation under
+`flake.checks.<sys>.<name>`. Each such derivation surfaces in the GitHub
+Checks UI as `check <name> [<system>]` <sup>[[obs]](#ref-obs)</sup>.
+
+### The shape
+
+A check is just a derivation that fails the build (non-zero exit, or no
+`$out`) when tests fail. The simplest wrapper is `pkgs.runCommand`:
+
+```nix
+# flake.nix (sketch)
+checks = forAllSystems (system: let
+  pkgs = nixpkgs.legacyPackages.${system};
+in {
+  tests-unit = pkgs.runCommand "tests-unit" {
+    nativeBuildInputs = [ pkgs.python3 pkgs.python3Packages.pytest ];
+    src = self;
+  } ''
+    cp -r $src/* .
+    pytest tests/unit -v
+    touch $out
+  '';
+});
+```
+
+It runs in the Nix sandbox <sup>[[actions]](#ref-actions)</sup> — **no
+network, no `/proc` mount, no nested containers**. Tests that need any of
+those belong as Actions instead (see "The load-bearing distinction" above).
+
+### Per-language idioms
+
+| Language | Test runner | Idiomatic Nix wrapper |
+|---|---|---|
+| Python | pytest | `runCommand` with `python3.withPackages (p: [ p.pytest p.<deps> ])`; or `buildPythonPackage` with `nativeCheckInputs = [ pytest ]` |
+| Node | jest, vitest, mocha | Hard mode — npm install needs network. Use `pkgs.buildNpmPackage` (lockfile-driven, sandbox-safe) and put the test command in `checkPhase` |
+| Go | `go test ./...` | `pkgs.buildGoModule { doCheck = true; }` runs the suite in `checkPhase` automatically — no extra wrapping needed |
+| Rust | `cargo test` | `pkgs.rustPlatform.buildRustPackage { doCheck = true; }` — same pattern as Go |
+| Clojure | kaocha, clojure.test | clj-nix's `mkCljApp`; tests via a separate `runCommand` invoking `bin/kaocha`. Tag network tests with kaocha metadata so they route to Actions |
+| Bash / shell | bats | `runCommand` with `pkgs.bats` and a `bats tests/` invocation |
+| Nix itself | `lib.runTests` | `runCommand` that runs `lib.runTests` and asserts the result is `[]` |
+| Treefmt / formatters | treefmt-nix | `treefmt-nix` exposes `flake.checks.<sys>.treefmt` directly — wire it once, free formatting check |
+
+For language packaging conventions in flakes (toolchain pinning, override
+patterns, deps lockfiles), the sibling `nix-flakes`, `nix-clojure`,
+`nix-java` skills cover the project-side details. This skill cares about
+the *check derivation* boundary.
+
+### Grouping — when to split, when to merge
+
+Each `flake.checks.<sys>.<name>` becomes one row in the GitHub Checks UI
+and one Garnix builder allocation. Both have fixed cost (Nix evaluation +
+runner provisioning, ~5–15s per check <sup>[[obs]](#ref-obs)</sup>), so
+naive sharding makes the suite slower, not faster.
+
+Default to **one check per logical test partition** — not one per file,
+not one per test:
+
+- **Slow vs fast** is the most common useful split: `tests-unit` and
+  `tests-integration` (or `tests-fast` / `tests-slow`). Lets a re-run on a
+  flake of the slow suite skip re-running the fast one.
+- **Per top-level package** in a monorepo, when each package's tests are
+  independent and individually meaningful (>30s each). Matches how
+  developers run them locally.
+- **Per language** if the project is polyglot (e.g. `tests-python`,
+  `tests-clojure`). Keeps failures legible.
+- **Sandbox vs Action partition** is a hard split: pure tests stay in
+  `flake.checks`, network/container tests move to `flake.apps` and run as
+  Actions. Use the test runner's existing tag system as the boundary —
+  pytest markers, kaocha metadata, Go build tags, Rust `#[cfg(test)]` with
+  feature flags — so reclassifying a single test is one annotation, not a
+  flake refactor.
+- **Formatting and linting** as their own checks (`treefmt`, `clj-kondo`,
+  `eslint`, `ruff`) — they fail differently from tests and reviewers want
+  to know which kind of red they're looking at.
+
+Don't split when:
+
+- The whole suite finishes in <2 minutes — one `tests` check is fine, the
+  UI noise from sharding outweighs any parallelism win.
+- The runner already does intra-suite parallelism (`pytest-xdist`,
+  `cargo test --jobs N`, `go test ./...`). Splitting at the Nix level on
+  top is double-counting and usually a wash.
+- Tests share expensive setup (database fixtures, JVM warmup, large
+  artifact loads). Splitting forces the setup to repeat per check; merge
+  instead.
+
+Do split when:
+
+- One file or module dominates wall time (e.g. a 15-minute suite where
+  one file accounts for 12 minutes). Isolate the slow one so flake re-runs
+  don't redo cheap work.
+- The same code paths run in multiple modes you want surfaced separately
+  (e.g. `tests-pg` vs `tests-sqlite`, `tests-jvm17` vs `tests-jvm21`).
+
+Avoid:
+
+- A check per individual test case. Nix won't help; the check-suite UI
+  becomes unscannable.
+- Sharding by hash bucket (`tests-shard-1` … `tests-shard-N`). Buckets
+  obscure what failed, lose the slow-vs-fast signal, and rarely beat the
+  test runner's own parallelism.
+
+### Make the check required
+
+Once `flake.checks.<sys>.<name>` is wired up and matches your
+`garnix.yaml` `checks.*` include pattern, it appears as `check <name>
+[<system>]` on every PR <sup>[[obs]](#ref-obs)</sup>. To actually gate
+merges, mark it as required in branch protection:
+
+```bash
+# List current required checks
+gh api "repos/<owner>/<repo>/branches/<branch>/protection/required_status_checks" \
+  --jq '.contexts'
+```
+
+Garnix's umbrella roll-up is `All Garnix checks` — making *that* required
+gates on the whole suite without naming each check individually
+<sup>[[obs]](#ref-obs)</sup>, and survives adding/renaming checks without
+re-editing branch protection.
+
 ## Step 2 — install the GitHub App
 
 Send the user to https://github.com/apps/garnix-ci/installations/new
@@ -131,9 +318,120 @@ selection. There is no API or CLI to install a GitHub App on someone else's
 behalf <sup>[[obs]](#ref-obs)</sup> — GitHub's permissions flow requires
 interactive OAuth.
 
+### Already installed but not scoped to this repo
+
+If Garnix is already installed on the account but the new repo isn't
+covered by the install (common with "Only select repositories"), the user
+needs to add it. They can't grant access from the API either — same OAuth
+constraint <sup>[[obs]](#ref-obs)</sup>.
+
+- **User account installs:** list all installations at https://github.com/settings/installations <sup>[[obs]](#ref-obs)</sup>, then click into "Garnix CI". The per-installation URL is `https://github.com/settings/installations/<install-id>` <sup>[[obs]](#ref-obs)</sup> — but the `<install-id>` is account-specific (e.g. `126117906` for one observed user), so don't share a hardcoded link with someone else; send them through `/settings/installations` and let them click in.
+- **Org installs:** the equivalent listing lives at `https://github.com/organizations/<org>/settings/installations` <sup>[[obs]](#ref-obs)</sup>.
+- **Web nav path:** `[user avatar] > Settings > Integrations > Applications > Garnix CI` <sup>[[obs]](#ref-obs)</sup>.
+
+On the Garnix CI install page, under **Repository access**, pick either
+**All repositories** or **Only select repositories** and add the new repo,
+then click **Save** <sup>[[obs]](#ref-obs)</sup>. After saving, push a new
+commit (an empty commit is fine — see Step 3) to fire a webhook for the
+just-scoped repo; existing commits aren't backfilled
+<sup>[[obs]](#ref-obs)</sup>.
+
 If you can't see Garnix check-suites after a push, the install is probably
 not scoped to this repo — re-check the user's app installation settings
 <sup>[[obs]](#ref-obs)</sup>.
+
+### Detecting install state programmatically
+
+There is no way to ask "is Garnix installed and scoped to this repo?" with a
+classic `gh` user PAT. Every endpoint that exposes the answer requires
+either a GitHub App JWT or an installation access token
+<sup>[[apps-rest]](#ref-apps-rest)</sup>:
+
+| Endpoint | Auth required | Result with classic user PAT |
+|---|---|---|
+| `GET /user/installations` | App user-to-server token | 403 "must authenticate as a GitHub App" <sup>[[obs]](#ref-obs)</sup> |
+| `GET /user/installations/<id>/repositories` | App user-to-server token | 403 even after `gh auth refresh -s read:user,user` <sup>[[obs]](#ref-obs)</sup> |
+| `GET /installation/repositories` | Installation access token | 403 "must authenticate with an installation access token" <sup>[[obs]](#ref-obs)</sup> |
+| `GET /repos/<owner>/<repo>/installation` | App JWT | 401 "JSON web token could not be decoded" <sup>[[obs]](#ref-obs)</sup> |
+
+The `gh` CLI's "needs the X scope" hint on these 403s is misleading — adding
+the scope it suggests still produces a 403, just with a different "must
+authenticate as a GitHub App" message. Don't keep chasing scopes.
+
+### Workable monitoring approaches
+
+1. **Push, then poll check-suites for the `garnix-ci` slug.** The only
+   API-driven signal a classic user PAT can read:
+
+   ```bash
+   SHA=$(git rev-parse HEAD); REPO=<owner>/<repo>
+   gh api "repos/$REPO/commits/$SHA/check-suites" \
+     --jq '[.check_suites[] | select(.app.slug=="garnix-ci")] | length'
+   ```
+
+   `0` → not installed (or not scoped, or webhook hasn't fired yet);
+   `>0` → Garnix has accepted this commit. If the answer is `0` after
+   ~30s on a fresh push, the most likely cause is "installed at the user
+   level but this repo isn't selected". Pre-install commits are not
+   retroactively built — push an empty commit *after* the install is
+   scoped (Step 3) to fire a webhook the new install can see
+   <sup>[[obs]](#ref-obs)</sup>.
+
+2. **Background install-watcher.** When you can run a long-lived watcher
+   (the harness's Monitor tool, a tmux pane, etc.), poll the repo's HEAD
+   commit for a `garnix-ci` suite on a 60s cadence and emit on the
+   transition from absent to present. Skeleton:
+
+   ```bash
+   REPO=<owner>/<repo>; LAST_HB=$(date +%s)
+   while true; do
+     HEAD=$(gh api "repos/$REPO/commits" --jq '.[0].sha' 2>/dev/null)
+     [ -z "$HEAD" ] && { sleep 60; continue; }
+     HAS=$(gh api "repos/$REPO/commits/$HEAD/check-suites" \
+       --jq '[.check_suites[] | select(.app.slug=="garnix-ci")] | length' 2>/dev/null)
+     if [ "${HAS:-0}" -gt 0 ]; then
+       echo "GARNIX_DETECTED head=$HEAD"; exit 0
+     fi
+     NOW=$(date +%s)
+     if [ "$((NOW - LAST_HB))" -gt 300 ]; then
+       echo "heartbeat: still no garnix-ci on $HEAD at $(date -u +%H:%M:%SZ)"
+       LAST_HB=$NOW
+     fi
+     sleep 60
+   done
+   ```
+
+   Emit a heartbeat every ~5 min so the monitor isn't silent during a
+   long wait — silence is indistinguishable from a crashed watcher
+   <sup>[[obs]](#ref-obs)</sup>. If the user installs but does not push,
+   the watcher will stay silent forever; pair it with an explicit
+   "tell me when you've installed" instruction or an empty-commit
+   retry on a slow cadence (e.g. every 15 min) so installation always
+   gets tested.
+
+3. **Have the user confirm in-band.** No automation; they say "installed",
+   you push an empty commit and start the per-run monitor (Step 5 watch
+   loop). Faster and more reliable when the user is interactive.
+
+4. **Prefilled install URL.** Generate a one-click link that prefills the
+   repo selector so the user doesn't navigate manually:
+
+   ```bash
+   read -r owner_id repo_id < <(gh api "repos/<owner>/<repo>" \
+     --jq '[.owner.id, .id] | @tsv')
+   echo "https://github.com/apps/garnix-ci/installations/new/permissions?target_id=${owner_id}&repository_ids[]=${repo_id}"
+   ```
+
+   `target_id` is the owner's numeric ID; `repository_ids[]` (the `[]`
+   is part of the query-string key) prefills the repo selection. The
+   same URL pattern works to *add* a repo to an existing installation,
+   not just to create new ones <sup>[[obs]](#ref-obs)</sup>.
+
+5. **Don't bother with fine-grained PATs for this.** They expose a
+   "GitHub Apps installations" permission category, but the listing
+   endpoints remain gated on app-context auth in practice. Treat as
+   last resort and verify on a throwaway fine-grained PAT before
+   automating around it.
 
 ## Step 3 — fire the first build
 
@@ -417,12 +715,13 @@ GitHub Actions. The runs do **not** appear in the Actions tab
 | Symptom | Cause | Fix | Source |
 |---|---|---|---|
 | No Garnix check-suite ever appears | App not installed on this repo | User installs at https://github.com/apps/garnix-ci/installations/new | <sup>[[app]](#ref-app)</sup> |
+| App installed on the account but new repo not building | Install was scoped to "Only select repositories" and this repo isn't in the set | User goes to https://github.com/settings/installations → Garnix CI → Repository access → add the repo → Save, then pushes a new commit | <sup>[[obs]](#ref-obs)</sup> |
 | Suite created but only `semaphore-ci-cd` etc. show, no Garnix | Same as above (other GitHub Apps are unrelated) | Same as above | <sup>[[obs]](#ref-obs)</sup> |
 | Check-suite shows `success` but check-runs query is empty | Polling raced a fast (~30s) build between intervals | Lengthen poll window OR also fetch `/check-suites` and trust the suite-level conclusion | <sup>[[obs]](#ref-obs)</sup> |
 | Badge image broken on GitHub | Using raw `garnix.io/api/badges/...` (returns JSON) | Wrap through `img.shields.io/endpoint.svg?url=...` | <sup>[[badges]](#ref-badges)</sup> <sup>[[obs]](#ref-obs)</sup> |
 | Pre-install commits not built | Garnix only triggers on post-install webhook events | Push an empty commit to fire the webhook | <sup>[[obs]](#ref-obs)</sup> |
 | Check is consistently "still running" with no log progress | Likely a silent OOM near the 4.5 GB ceiling | Inspect last cached output; restructure to use prebuilt artifacts | <sup>[[notes]](#ref-notes)</sup> |
-| Darwin attrs go unbuilt despite being in the include set | Builder coverage for Darwin systems may be partial; docs are ambiguous | Verify against `/docs/ci/yaml_config/` and a probe build before depending on it | <sup>[[yaml]](#ref-yaml)</sup> |
+| A specific Darwin attr won't build despite being in the include set | The output is gated to a non-Darwin system, requires IFD that the Darwin builder rejects, or simply doesn't exist for that arch | Confirm the attr resolves locally with `nix eval .#packages.<sys>.<name>.outPath`; if it does, file a probe and verify against `/docs/ci/yaml_config/` | <sup>[[yaml]](#ref-yaml)</sup> |
 
 ## Watch-loop snippet (for autonomous monitoring)
 
@@ -564,3 +863,11 @@ before relying on a fact for a production decision.
 - **Source:** https://shields.io/badges/endpoint-badge
 - **Last verified:** 2026-04-25.
 - **Re-verify:** Fetch the URL if endpoint URL conventions change (e.g., `endpoint.svg` vs `endpoint`).
+
+<a id="ref-apps-rest"></a>
+
+### `[apps-rest]` — GitHub Apps REST API authentication
+
+- **Source:** https://docs.github.com/en/rest/apps/installations
+- **Last verified:** 2026-04-27.
+- **Re-verify:** Fetch the URL; confirm the listing endpoints (`/user/installations`, `/user/installations/{id}/repositories`, `/installation/repositories`, `/repos/{owner}/{repo}/installation`) still require GitHub App authentication (JWT or installation token), not user PATs. If GitHub adds a fine-grained PAT scope that genuinely unlocks the listing endpoints, update Workable monitoring approaches #5 to a positive recommendation.
