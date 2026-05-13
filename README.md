@@ -31,15 +31,15 @@ The default `nix run` is a **read-only preview** — it lists what would be inst
 ```sh
 # Preview what would be installed (no side effects)
 nix run github:nhooey/skills-nix
-nix run 'github:nhooey/skills-nix?dir=skills/garnix-ci'
+nix run 'github:nhooey/skills-nix?dir=skills/nix-garnix-ci'
 
 # Actually install
-nix run github:nhooey/skills-nix#install                          # all skills
-nix run 'github:nhooey/skills-nix?dir=skills/garnix-ci#install'   # just one
+nix run github:nhooey/skills-nix#install                              # all skills
+nix run 'github:nhooey/skills-nix?dir=skills/nix-garnix-ci#install'   # just one
 
 # Or build a derivation containing the skill files (no install side-effect)
-nix build github:nhooey/skills-nix#all          # all skills, symlinkJoined
-nix build github:nhooey/skills-nix#garnix-ci    # one skill
+nix build github:nhooey/skills-nix#all              # all skills, symlinkJoined
+nix build github:nhooey/skills-nix#nix-garnix-ci    # one skill
 ```
 
 The installer copies into `$CLAUDE_SKILLS_DIR` if set, otherwise `~/.claude/skills/`. Existing skill directories with the same name are replaced.
@@ -50,7 +50,7 @@ Each skill derivation produces `$out/share/claude-skills/<name>/` containing `SK
 
 | Name | Description | Link |
 | --- | --- | --- |
-| garnix-ci | Wire up Garnix CI for a Nix flake on GitHub. | [skills/garnix-ci](skills/garnix-ci) |
+| nix-garnix-ci | Wire up Garnix CI for a Nix flake on GitHub. | [skills/nix-garnix-ci](skills/nix-garnix-ci) |
 | nix-flakes | Generic, language-agnostic Nix flake conventions and structure. | [skills/nix-flakes](skills/nix-flakes) |
 | nix-clojure | Clojure / ClojureScript packaging in Nix flakes via clj-nix. | [skills/nix-clojure](skills/nix-clojure) |
 | nix-java | JVM-specific patterns in Nix flakes (IDE-stable JDK symlink, override patterns). | [skills/nix-java](skills/nix-java) |
@@ -78,7 +78,7 @@ description: What the skill does, and when the model should invoke it.
 
 Write the `description` so an agent can decide whether to invoke the skill from that one line — describe both *what it does* and *when to use it*.
 
-To make a new skill installable via Nix in isolation, drop a `flake.nix` into the skill folder modeled on `skills/garnix-ci/flake.nix`. The top-level flake auto-discovers any subdirectory of `skills/` that contains a `SKILL.md`, so the aggregate package picks up new skills without further changes.
+To make a new skill installable via Nix in isolation, drop a `flake.nix` into the skill folder modeled on `skills/nix-garnix-ci/flake.nix`. The top-level flake auto-discovers any subdirectory of `skills/` that contains a `SKILL.md`, so the aggregate package picks up new skills without further changes.
 
 ## License
 
