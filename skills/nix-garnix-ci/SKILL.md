@@ -213,10 +213,36 @@ Listing an attr that doesn't exist for the target arch will fail evaluation
 <sup>[[obs]](#ref-obs)</sup>, so only include arch / output combinations
 the flake actually exposes.
 
-A coarser `'*.x86_64-linux.*'` works too if you want everything for a system
-<sup>[[yaml]](#ref-yaml)</sup>. Patterns are flake output paths with `*`
-wildcards. `builds.exclude` is applied **after** include, so a match in both
-ends up excluded <sup>[[yaml]](#ref-yaml)</sup>.
+### Wildcard discipline — minimise lines without catching too much
+
+Patterns are flake output paths with `*` wildcards
+<sup>[[yaml]](#ref-yaml)</sup>. The sweet spot is **one wildcard per
+`(output-class, arch)` pair** the flake actually exposes — the form in the
+example above (`packages.x86_64-linux.*`, `checks.x86_64-linux.*`, …). It
+covers newly-added attrs without editing `garnix.yaml`, while still
+bounding what each push builds to the axes you intentionally opted into.
+
+Avoid the two failure modes:
+
+- **Too narrow** — listing each output by name
+  (`packages.x86_64-linux.foo`, `packages.x86_64-linux.bar`, …). New
+  packages silently drop out of CI until someone remembers to update
+  `garnix.yaml`. Reserve this form for deliberately curating a subset,
+  e.g. excluding one slow integration package from PR builds.
+- **Too broad** — wildcards that span output classes or arches you didn't
+  intentionally opt into:
+  - `*.x86_64-linux.*` sweeps in `nixosConfigurations`,
+    `homeManagerModules`, `legacyPackages`, and anything else with a
+    system axis. Fine for a one-attr flake; turns into a silent
+    minute-burner as the flake grows.
+  - `packages.*.*` builds every arch — multiplies minute consumption
+    against the architectures decision the user just made in Step 1.
+  - `*` catches everything Garnix can evaluate.
+
+`builds.exclude` is applied **after** include, so a match in both ends up
+excluded <sup>[[yaml]](#ref-yaml)</sup>. Use it for the rare carve-out
+(one expensive package, one Darwin-broken check) rather than building up
+a long deny-list under a too-broad include.
 
 `homeManagerModules.*` is non-systemed; Garnix evaluates rather than builds
 it. Eval errors still fail the suite via the umbrella `Evaluate flake.nix`
@@ -233,6 +259,38 @@ branch matches where commits land:
 ```bash
 gh api repos/<owner>/<repo> --jq .default_branch
 ```
+
+### Per-system FOD bring-up: narrow first, expand once hashes are pinned
+
+When the flake exposes a fixed-output derivation with a per-system hash
+table (typical pattern: `nodeModulesHash.<sys>` for vendored
+`node_modules`, `cargoHash.<sys>` for a Rust workspace, or any FOD whose
+output is platform-specific because postinstalls pull native binaries),
+only the dev machine's hash is typically pinned at any moment — the
+other systems are empty placeholders that Nix resolves to
+`sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=` and fails with
+`hash mismatch ... specified: sha256-AAA… got: sha256-<actual>`
+<sup>[[obs]](#ref-obs)</sup>.
+
+If `garnix.yaml` lists all four arches on the FOD's first push, Garnix
+red-Xes three of four on every iteration while you ferry hashes one at
+a time. Narrow `builds.include` to the system whose hash is already
+pinned, ship that scope-down as its own PR, merge, then expand the
+matrix:
+
+1. **Initial prep PR**: `builds.include` covers only the pinned arch
+   (e.g. `x86_64-linux`). Merge before pushing the FOD PR.
+2. **FOD PR** builds against that scope. Green.
+3. **Expansion PR**: add the next arch's row to `builds.include`.
+   Garnix fails with `hash mismatch ... got: sha256-<actual>`. Paste
+   the `got:` value back into the flake's per-system hash table — fix
+   in the commit that introduced the FOD, force-push, repeat.
+4. Repeat per arch. Cost is one CI round per arch, but each round is
+   a single Garnix build with a single fix, not a four-way red.
+
+This is faster and quieter than running the FOD locally under
+`qemu-user` / `nix build --system <foreign>` to discover hashes on a
+single machine.
 
 ### Actions block
 
@@ -790,6 +848,7 @@ GitHub Actions. The runs do **not** appear in the Actions tab
 | Pre-install commits not built | Garnix only triggers on post-install webhook events | Push an empty commit to fire the webhook | <sup>[[obs]](#ref-obs)</sup> |
 | Check is consistently "still running" with no log progress | Likely a silent OOM near the 4.5 GB ceiling | Inspect last cached output; restructure to use prebuilt artifacts | <sup>[[notes]](#ref-notes)</sup> |
 | A specific Darwin attr won't build despite being in the include set | The output is gated to a non-Darwin system, requires IFD that the Darwin builder rejects, or simply doesn't exist for that arch | Confirm the attr resolves locally with `nix eval .#packages.<sys>.<name>.outPath`; if it does, file a probe and verify against `/docs/ci/yaml_config/` | <sup>[[yaml]](#ref-yaml)</sup> |
+| `curl https://app.garnix.io/build/<id>/log` returns 404, and `WebFetch` on the same URL shows only nav chrome (no build output) | The Garnix build page is a client-side SPA; logs aren't on a stable URL the way GitHub Actions logs are | Go through the GitHub check-run URL, not the Garnix one. `gh api "repos/<owner>/<repo>/commits/<sha>/check-runs" --jq '.check_runs[] \| select(.app.slug=="garnix-ci") \| .html_url'` returns a `github.com/<owner>/<repo>/runs/<run-id>` URL whose page renders server-side. `WebFetch` it to extract `hash mismatch ... got: sha256-…` and similar error text | <sup>[[obs]](#ref-obs)</sup> |
 
 ## Watch-loop snippet (for autonomous monitoring)
 
