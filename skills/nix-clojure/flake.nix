@@ -3,7 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-skills.url = "github:nhooey/flake-skills/configurable-package-prefix";
+    flake-skills.url = "github:nhooey/flake-skills";
     flake-skills.inputs.nixpkgs.follows = "nixpkgs";
   };
 
