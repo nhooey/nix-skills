@@ -3,7 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-skills.url = "github:nhooey/flake-skills";
+    flake-skills.url = "github:nhooey/flake-skills/configurable-package-prefix";
     flake-skills.inputs.nixpkgs.follows = "nixpkgs";
   };
 
@@ -12,5 +12,6 @@
       inherit nixpkgs;
       skillName = "nix-garnix-ci";
       src = ./.;
+      packagePrefix = "agent-skills-pack-";
     };
 }
