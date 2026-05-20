@@ -87,7 +87,12 @@ Reserve `with` for cases where you really want a tight ad-hoc scope (e.g. inside
 
 ## Toolchain pinning
 
-When a toolchain — a compiler, runtime, or build tool — has multiple available versions *and* is used by more than one consumer in the flake (the production build, the dev shell, the IDE, CI checks), define a single source of truth for the pinned version and thread it through every consumer. One edit retargets the whole project.
+A toolchain qualifies for single-source-of-truth pinning only when **both** of these hold:
+
+1. **It has a version axis in nixpkgs** — two or more selectable versions you could retarget *between*, e.g. `pkgs.nodejs_22` ↔ `pkgs.nodejs_20`, `pkgs.jdk21` ↔ `pkgs.jdk17`, a `rust-bin` channel. An *unversioned* attr — `pkgs.bun`, `pkgs.ripgrep`, `pkgs.git`, anything nixpkgs exposes under a single bare name — has no axis and does **not** qualify, no matter how many times it appears.
+2. **It is used by more than one consumer** in the flake — the production build, the dev shell, the IDE, CI checks.
+
+When both hold, define a single source of truth for the pinned version (a compiler, runtime, or build tool) and thread it through every consumer. One edit retargets the whole project.
 
 Concretely:
 
@@ -103,7 +108,12 @@ in {
 }
 ```
 
-Apply this any time you'd otherwise write the toolchain version more than once.
+The trigger is **writing the pinned *version* in more than one place** — not merely referencing the same package more than once. Both conditions above are load-bearing; if either fails, do not hoist:
+
+- **No version axis → the rule does not apply**, regardless of how many call sites. `pkgs.bun` written at three `nativeBuildInputs` sites is not a violation: there is no `bun_1_0` to switch to, so there is no "pinned version" to make a single source of truth *for*. Hoisting it to a `let` binding is an unrequested DRY refactor, not this rule. (Plain de-duplication may be worth doing on its own merits — but if you do it, say *that's* why; don't attribute it to toolchain pinning, and don't smuggle it into a change set scoped to "follow the skill.")
+- **Single consumer → no indirection needed.** A versioned attr used in exactly one place is already its own single source of truth; pin it inline.
+
+Litmus test before hoisting: **name the other version this one edit would switch to.** `pkgs.nodejs_22 → pkgs.nodejs_20`: real axis, hoist. `pkgs.bun → ?`: nothing to name, leave it inline.
 
 If two packages on PATH inside the dev shell would shadow each other (e.g. a wrapper that re-exports the same tool name), use `pkgs.lib.lowPrio` to demote one rather than removing it. Both stay available; only one wins on `PATH`.
 
