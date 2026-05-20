@@ -12,5 +12,6 @@
       inherit nixpkgs;
       skillName = "nix-clojure";
       src = ./.;
+      packagePrefix = "agent-skills-pack-";
     };
 }

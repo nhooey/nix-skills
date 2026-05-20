@@ -12,5 +12,6 @@
       inherit nixpkgs;
       skillName = "nix-java";
       src = ./.;
+      packagePrefix = "agent-skills-pack-";
     };
 }

@@ -12,5 +12,6 @@
       inherit nixpkgs;
       skillName = "nix-flakes";
       src = ./.;
+      packagePrefix = "agent-skills-pack-";
     };
 }

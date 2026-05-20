@@ -12,5 +12,6 @@
       inherit nixpkgs;
       skillName = "nix-garnix-ci";
       src = ./.;
+      packagePrefix = "agent-skills-pack-";
     };
 }

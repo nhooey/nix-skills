@@ -11,5 +11,6 @@
     flake-skills.lib.mkAllSkillsFlake {
       inherit nixpkgs;
       skillsDir = ./skills;
+      packagePrefix = "agent-skills-pack-";
     };
 }
