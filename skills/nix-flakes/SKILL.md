@@ -65,7 +65,7 @@ Reserve `with` for cases where you really want a tight ad-hoc scope (e.g. inside
 
 ## Structure
 
-- **Use `flake-parts.lib.mkFlake` for non-trivial flakes.** `perSystem` keeps the system axis clean, and modules (`easyOverlay`, `devshell.flakeModule`, `treefmt-nix.flakeModule`) compose via `imports` instead of being open-coded.
+- **Default to `flake-parts.lib.mkFlake` for every flake — even small ones.** `perSystem` collapses the system-fanout boilerplate (`forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system); pkgs = nixpkgs.legacyPackages.${system};`) into one signature, and ecosystem modules (`easyOverlay`, `devshell.flakeModule`, `treefmt-nix.flakeModule`, `pre-commit-hooks-nix.flakeModule`, …) compose via `imports = [ … ];` rather than being open-coded. The "small flake" rarely stays small: adding a second check, a devshell, or a formatter is two `imports` lines under flake-parts versus restructuring under plain `genAttrs`. The marginal cost is one extra input and a four-line wrapper — strictly less code than the boilerplate it replaces. The only honest opt-out is a one-shot fixture flake that will never grow a second output. A repo that mixes flake-parts flakes and `genAttrs` flakes also pays an ongoing context-switch tax on every read; picking one default removes it.
 - **Iterate systems via the `nix-systems/default` flake** rather than re-declaring the system list in every flake. The convention:
 
   ```nix
