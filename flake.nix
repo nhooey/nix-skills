@@ -23,6 +23,7 @@
         # All nix-* skills.
         agent-skills-nix-all = [
           "nix-clojure"
+          "nix-flake-recursive-bump-input-versions"
           "nix-flakes"
           "nix-garnix-ci"
           "nix-java"
