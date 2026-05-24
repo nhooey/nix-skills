@@ -54,6 +54,7 @@ Each skill derivation produces `$out/share/claude-skills/<name>/` containing `SK
 | --- | --- | --- |
 | nix-garnix-ci | Wire up Garnix CI for a Nix flake on GitHub. | [skills/nix-garnix-ci](skills/nix-garnix-ci) |
 | nix-flakes | Generic, language-agnostic Nix flake conventions and structure. | [skills/nix-flakes](skills/nix-flakes) |
+| nix-flake-recursive-bump-input-versions | Recursively bump owned flake inputs across a multi-repo lock tree, cascading PRs leaves-first. | [skills/nix-flake-recursive-bump-input-versions](skills/nix-flake-recursive-bump-input-versions) |
 | nix-clojure | Clojure / ClojureScript packaging in Nix flakes via clj-nix. | [skills/nix-clojure](skills/nix-clojure) |
 | nix-java | JVM-specific patterns in Nix flakes (IDE-stable JDK symlink, override patterns). | [skills/nix-java](skills/nix-java) |
 
