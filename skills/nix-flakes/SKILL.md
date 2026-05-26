@@ -12,14 +12,16 @@ Generic, language-agnostic guidance for `flake.nix` files. For JVM-specific patt
 When this skill is invoked, treat it as a request to act on the current repo, not just to recite conventions. Decide which mode you're in by inventorying flakes in the working directory:
 
 ```sh
-git ls-files '*flake.nix' '**/flake.nix'   # tracked
-# also check untracked, in case the user is mid-creation:
-git ls-files -o --exclude-standard '*flake.nix' '**/flake.nix'
+scripts/inventory-flakes.sh
 ```
+
+Emits one TSV line per `flake.nix` with a `tracked` / `untracked` marker; exits 1 if nothing found.
+
+> **Invocation path.** Examples in this file write `scripts/<name>.sh` for brevity, but the agent's cwd at invocation is the user's repo — not this skill's install directory. Prefix each invocation with the skill's installed path (`$CLAUDE_PLUGIN_ROOT` under a plugin, or `~/.claude/skills/nix-flakes` under a user-level install).
 
 Then:
 
-- **Zero flakes found → create one immediately, without asking.** The user invoked the skill from inside a repo that has none; the obvious next step is to author one. Detect the project's primary language(s) from the repo (`Cargo.toml`, `package.json`, `pyproject.toml`, `deps.edn`, `pom.xml`, `go.mod`, …) and scaffold a `flake.nix` that follows every convention in this skill: pinned + deduped inputs, `flake-parts.lib.mkFlake`, `nix-systems/default`, `numtide/devshell`, `numtide/treefmt-nix`, single-source-of-truth toolchain pinning (read `rust-toolchain.toml` / `.nvmrc` / equivalents when present), sorted devshell commands with categories and `help`, and `result` / `result-*` added to `.gitignore`. If there is no language signal, scaffold a minimal flake-parts skeleton with just devshell + treefmt and let the user fill in the rest. After writing the file, run `nix flake metadata` (or `nix flake show --all-systems --no-write-lock-file`) to confirm it evaluates, and report what you did.
+- **Zero flakes found → create one immediately, without asking.** The user invoked the skill from inside a repo that has none; the obvious next step is to author one. Detect the project's primary language(s) with `scripts/detect-project-language.sh` (emits slugs like `rust`, `node-pnpm`, `python-poetry`, `clojure`, `java-gradle`; one per line) and scaffold a `flake.nix` that follows every convention in this skill: pinned + deduped inputs, `flake-parts.lib.mkFlake`, `nix-systems/default`, `numtide/devshell`, `numtide/treefmt-nix`, single-source-of-truth toolchain pinning (read `rust-toolchain.toml` / `.nvmrc` / equivalents when present), sorted devshell commands with categories and `help`, and `result` / `result-*` added to `.gitignore`. If the detector exits 1 (no language signal), scaffold a minimal flake-parts skeleton with just devshell + treefmt and let the user fill in the rest. After writing the file, run `nix flake metadata` (or `nix flake show --all-systems --no-write-lock-file`) to confirm it evaluates, and report what you did.
 
   **Stop and ask which `*2nix` library to use before generating any package-level Nix code.** As soon as you've identified a language, but *before* writing the `packages.<sys>` outputs that depend on the project's third-party dependencies, present the candidate `*2nix` strategies for that language (see "Language packaging — choosing a `*2nix` strategy" below) and let the user pick. Do not silently default to one — the choice is opinionated, has long-tail consequences (lockfile shape, contributor friction, IDE behaviour, CI cost), and reversing it later is painful. Acceptable shortcuts: if the project clearly already commits to one (e.g. `gemset.nix` exists → bundix; `nuget-deps.nix` exists → buildDotnetModule), use that without asking. The dev-shell + formatter scaffolding can land first; only the dependency-packaging choice needs the user's input.
 

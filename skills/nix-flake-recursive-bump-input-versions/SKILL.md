@@ -17,6 +17,30 @@ vs `with`, `flake-parts`, etc.) see the companion `nix-flakes` skill.
 This skill assumes those conventions are already in place; it focuses on
 the cross-repo maintenance loop on top of them.
 
+## Helper scripts
+
+The deterministic steps in this recipe live in `scripts/` next to this
+file. Each script takes `--help` for usage. Most assume `gh`, `jq`,
+`nix`, and `git` on `PATH`; `run-bump-pull-request.sh` also needs nix
+≥2.19 and `fmt`.
+
+**Invocation path.** Examples in this file write the script paths as
+`scripts/<name>.sh` for brevity, but the working directory at invocation
+is usually the *user's flake repo* — not this skill's install dir. Prefix
+each invocation with the skill's installed directory (`$CLAUDE_PLUGIN_ROOT`
+when running under a plugin, or `~/.claude/skills/nix-flake-recursive-bump-input-versions`
+under a user-level install). The scripts self-locate via `$BASH_SOURCE` so
+once invoked with the right absolute path, the cross-script calls between
+them resolve correctly.
+
+| Script | Purpose | Steps below |
+| --- | --- | --- |
+| `list-filtered-inputs.sh` | Apply a jq predicate to the lock graph; emit TSV `key owner repo rev ref` per matching input | §1 |
+| `find-behind-inputs.sh` | Wrap the lister + `gh api .../commits/$ref` per input's *own* owner; emit TSV `key owner repo rev head ref` for behind inputs (head=`UNRESOLVED` for refs we couldn't query) | §2 |
+| `classify-direct-vs-transitive.sh` | Walk `inputs` edges (including `follows`-style array edges) to surface each node's parents (`root` parent ⇒ direct) | §3 |
+| `run-bump-pull-request.sh` | Per-PR execution dance: checkout / `nix flake update` / `flake check` / commit / push / `gh pr create --base "$BASE"`; preflight checks nix ≥2.19 and a free `$BRANCH` | §5 |
+| `verify-cascade-complete.sh` | Re-run the behind-input scan after the cascade lands; exit 0 + `all green` or exit 1 + remaining mismatches (UNRESOLVED rows count as still-behind) | §8 |
+
 ## On load — decide whether to act
 
 When this skill is invoked, treat it as a request to act on the current
@@ -59,55 +83,57 @@ The decisions are baked into this skill's behaviour:
 ## 1. Filter the lock graph
 
 ```sh
-nix flake metadata --json | jq -r '
-  .locks.nodes | to_entries[] |
-  select(.value.locked.owner == "nhooey") |
-  [.key, .value.locked.repo, .value.locked.rev,
-   (.value.original.ref // "HEAD")] | @tsv
-'
+scripts/list-filtered-inputs.sh '<jq predicate against each .value>'
 ```
 
-Replace the `select(...)` clause with whatever predicate the user
-chose. The four returned columns — key, repo, rev, ref — are
-everything the rest of the recipe consumes.
+The script defaults the predicate to `.locked.owner == "<gh login>"` if
+none is passed (the `<gh login>` is derived at runtime via `gh api user
+--jq .login`). Emits TSV `key owner repo rev ref` per matching input —
+the five columns the rest of the recipe consumes. See the "Filter recipe
+library" below for predicate examples.
 
 ## 2. Discover what's behind
 
 For each filtered input, query GitHub for the tip of its pinned branch:
 
 ```sh
-while IFS=$'\t' read -r key repo rev ref; do
-  head=$(gh api "repos/$OWNER/$repo/commits/$ref" --jq .sha)
-  [ "$head" != "$rev" ] && printf '%s\t%s\t%s\t%s\n' "$key" "$repo" "$rev" "$head"
-done < <(...filter recipe above...)
+scripts/find-behind-inputs.sh '<predicate>'
 ```
 
-For each behind-input, fetch the commit range so the user sees what
-will land:
+Wraps step 1 and queries `gh api repos/<owner>/<repo>/commits/<ref>` per
+input — using **each input's own `.locked.owner`** so predicates that
+match multiple owners work. Set `OWNER=<owner>` in env only to *override*
+the per-input owner (e.g. when chasing forks under a different account).
+Emits TSV `key owner repo rev head ref` for behind inputs and inputs
+whose ref couldn't be resolved (those get `head=UNRESOLVED`; the warning
+explaining why is on stderr).
+
+For each behind-input, fetch the commit range so the user sees what will
+land. Variables below come from the TSV row of the input being enriched —
+they are not exported by `find-behind-inputs.sh`; the agent feeds them in
+per call:
 
 ```sh
-gh api "repos/$OWNER/$repo/compare/$rev...$head" \
+gh api "repos/$owner/$repo/compare/$rev...$head" \
   --jq '.commits[] | "\(.sha[0:10])  \(.commit.author.date[0:10])  \(.commit.message | split("\n")[0])"'
 ```
+
+(Kept inline because per-input enrichment is ad-hoc — wrap further only
+if you find yourself doing it many times.)
 
 ## 3. Classify direct vs transitive
 
 A node is **direct** if it appears under `.locks.nodes.root.inputs`,
-**transitive** otherwise. Walk the `inputs` edges to recover ancestry:
+**transitive** otherwise.
 
 ```sh
-nix flake metadata --json | jq -r '
-  def parents(target):
-    .locks.nodes | to_entries[] |
-    select(.value.inputs[]? == target) | .key;
-  .locks.nodes | to_entries[] |
-  select(.value.locked.owner == "nhooey") |
-  .key as $k | "\($k): \([parents($k)] | join(", "))"
-'
+scripts/classify-direct-vs-transitive.sh '<predicate>'
 ```
 
-The parents-per-node output tells you which consumer flake to bump
-first — leaves of the dependency tree go first, roots last.
+Emits `<key>: <parent1>, <parent2>, ...` per matching node. `root` in
+the parent list means the node is a direct input; an empty parent list
+means the node is unreferenced. Leaves of the dependency tree go first
+in the cascade, roots last.
 
 ## 4. Plan the cascade — leaves first
 
@@ -137,16 +163,23 @@ for go/no-go:
 For each PR in the plan:
 
 ```sh
-cd "$CONSUMER_REPO"
-git fetch --quiet origin
-git checkout -b "$BRANCH" origin/master
-nix flake update $INPUTS_TO_BUMP
-nix flake check                       # gate
-git add flake.lock
-git commit -m "$SUBJECT" -m "$BODY"
-git push -u origin "$BRANCH"
-gh pr create --title "$SUBJECT" --body "$(echo "$BODY" | fmt -w 2500)"
+CONSUMER_REPO=<path> BRANCH=<topic> BASE=<default-branch> \
+  SUBJECT='Bump <inputs>' BODY='<paragraphs>' \
+  scripts/run-bump-pull-request.sh <input1> [<input2> ...]
 ```
+
+The script runs the deterministic `git fetch` → `checkout -b` →
+`nix flake update` → `nix flake check` → `commit` → `push` →
+`gh pr create --base "$BASE"` chain, failing fast on any step. The
+per-PR judgment calls (branch name, base branch, subject, body, which
+inputs to bump together) are passed in as env / args. PR URL is printed
+on stdout.
+
+Preflight: the script requires nix ≥2.19 (older nix silently ignores
+positional `nix flake update <input>` args), and fails fast if
+`$BRANCH` already exists locally — typical when retrying a half-finished
+run. Recovery is `git -C "$CONSUMER_REPO" branch -D "$BRANCH"` and
+re-invoke.
 
 **Wait for green checks + merge before the next PR** in the chain.
 Use the `github-pr-watcher` skill's Monitor pattern to react to
@@ -180,16 +213,12 @@ After the last PR in the chain merges, re-check that every filtered
 input is now at upstream HEAD:
 
 ```sh
-nix flake metadata --json | jq -r '
-  .locks.nodes | to_entries[] |
-  select(.value.locked.owner == "nhooey") |
-  .key as $k | $k + " " + .value.locked.rev[0:10]
-'
-# cross-check each against: gh api repos/$OWNER/<repo>/commits/<ref>
+OWNER=<github-owner> scripts/verify-cascade-complete.sh '<predicate>'
 ```
 
-Any remaining mismatch indicates a chain hop the plan missed — surface
-it to the user rather than declaring success.
+Exits 0 + `all green` on a clean cascade. Exits 1 + one line per still-
+behind input otherwise — surface those to the user rather than declaring
+success; they indicate a chain hop the plan missed.
 
 ## Filter recipe library
 
