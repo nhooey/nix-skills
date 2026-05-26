@@ -13,6 +13,29 @@ Actions** with network and tools <sup>[[actions]](#ref-actions)</sup>.
 Surfaces results via the GitHub Checks API
 <sup>[[checks-api]](#ref-checks-api)</sup> — no `.github/workflows/` file.
 
+## Helper scripts
+
+The deterministic procedures in this skill live in `scripts/` next to this
+file. Each script takes `--help` for usage. All assume `gh` on `PATH`;
+`discover-flake-outputs.sh` and `watch-checks.sh` also need `jq` (and the
+former needs `nix`); the install-probe / install-watcher / verify / url
+scripts use only `gh --jq` (gh's built-in filter).
+
+**Invocation path.** Examples below show `scripts/<name>.sh` for brevity,
+but the agent's working directory at invocation is usually the user's
+repo — not this skill's install dir. Prefix each invocation with the
+skill's installed directory (`$CLAUDE_PLUGIN_ROOT` when running under a
+plugin, or `~/.claude/skills/nix-garnix-ci` under a user-level install).
+
+| Script | Purpose | Section |
+| --- | --- | --- |
+| `discover-flake-outputs.sh` | Emit one `<class>.<system>.<name>` (or `<class>.<name>` for non-systemed) line per existing flake output — drives `builds.include` authoring. Errors surface on stderr (no swallowing). | "On load" |
+| `check-garnix-installed.sh REPO [SHA]` | Probe for a `garnix-ci` check-suite. Distinct exits: 0 installed / 1 not-installed / 2 gh-error (so auth/network failures don't masquerade as "not installed"). | Step 2 |
+| `garnix-install-url.sh REPO` | Print the prefilled install URL (`target_id` + `repository_ids[]`). Hard-errors on a failed `gh api` instead of emitting a malformed URL. | Step 2 |
+| `watch-install.sh REPO [--branch=B] [--heartbeat=N]` | Background poller for the absent→present transition. `--branch=` to watch a non-default branch (e.g. a PR branch the install commit went to). | Step 2 |
+| `watch-checks.sh REPO [SHA]` | Watch Garnix check-runs on a commit until completion; final `all green` or `failures: <json>`. Gives up with exit 2 after 5 consecutive `gh api` failures (no silent infinite spin on dead auth). | Watch loop |
+| `verify-cli.sh REPO [SHA]` | Suite-level summary + per-check status filtered to Garnix. | Step 5 |
+
 ## On load — what to do *before* explaining anything
 
 When this skill is invoked, treat it as a request to act on the current repo,
@@ -29,12 +52,12 @@ Then:
 
 - **No `garnix.yaml` found → confirm scope with the user, then author one.**
   The user invoked this skill from inside a repo that has none; the obvious
-  next step is to write one. Look at the flake outputs available
-  (`nix flake show --all-systems --no-write-lock-file 2>/dev/null` is the
-  cheapest way) and write a `garnix.yaml` at the repo root with explicit
-  `builds.include` patterns covering exactly the system / output combinations
-  the flake actually defines, restricted to the arches the user said they
-  target. After writing, remind the user that:
+  next step is to write one. Discover the flake outputs available with
+  `scripts/discover-flake-outputs.sh` (one `<class>.<system>.<name>` line
+  per existing output) and write a `garnix.yaml` at the repo root with
+  explicit `builds.include` patterns covering exactly the system / output
+  combinations the flake actually defines, restricted to the arches the
+  user said they target. After writing, remind the user that:
   1. Garnix only fires on commits pushed *after* the GitHub App is installed
      and scoped to the repo (Step 3); if the App isn't already installed they
      need to install it at https://github.com/apps/garnix-ci/installations/new
@@ -486,72 +509,56 @@ authenticate as a GitHub App" message. Don't keep chasing scopes.
 
 ### Workable monitoring approaches
 
-1. **Push, then poll check-suites for the `garnix-ci` slug.** The only
+1. **Push, then probe check-suites for the `garnix-ci` slug.** The only
    API-driven signal a classic user PAT can read:
 
    ```bash
-   SHA=$(git rev-parse HEAD); REPO=<owner>/<repo>
-   gh api "repos/$REPO/commits/$SHA/check-suites" \
-     --jq '[.check_suites[] | select(.app.slug=="garnix-ci")] | length'
+   scripts/check-garnix-installed.sh <owner>/<repo>
    ```
 
-   `0` → not installed (or not scoped, or webhook hasn't fired yet);
-   `>0` → Garnix has accepted this commit. If the answer is `0` after
-   ~30s on a fresh push, the most likely cause is "installed at the user
-   level but this repo isn't selected". Pre-install commits are not
+   Exit 0 + `installed` → Garnix has accepted this commit. Exit 1 +
+   `not-installed-or-not-scoped` → either not installed, not scoped to
+   this repo, or the webhook hasn't fired yet. If you get the latter
+   ~30s after a fresh push, the most likely cause is "installed at the
+   user level but this repo isn't selected". Pre-install commits are not
    retroactively built — push an empty commit *after* the install is
    scoped (Step 3) to fire a webhook the new install can see
    <sup>[[obs]](#ref-obs)</sup>.
 
 2. **Background install-watcher.** When you can run a long-lived watcher
-   (the harness's Monitor tool, a tmux pane, etc.), poll the repo's HEAD
-   commit for a `garnix-ci` suite on a 60s cadence and emit on the
-   transition from absent to present. Skeleton:
+   (the harness's Monitor tool, a tmux pane, etc.):
 
    ```bash
-   REPO=<owner>/<repo>; LAST_HB=$(date +%s)
-   while true; do
-     HEAD=$(gh api "repos/$REPO/commits" --jq '.[0].sha' 2>/dev/null)
-     [ -z "$HEAD" ] && { sleep 60; continue; }
-     HAS=$(gh api "repos/$REPO/commits/$HEAD/check-suites" \
-       --jq '[.check_suites[] | select(.app.slug=="garnix-ci")] | length' 2>/dev/null)
-     if [ "${HAS:-0}" -gt 0 ]; then
-       echo "GARNIX_DETECTED head=$HEAD"; exit 0
-     fi
-     NOW=$(date +%s)
-     if [ "$((NOW - LAST_HB))" -gt 300 ]; then
-       echo "heartbeat: still no garnix-ci on $HEAD at $(date -u +%H:%M:%SZ)"
-       LAST_HB=$NOW
-     fi
-     sleep 60
-   done
+   scripts/watch-install.sh <owner>/<repo> --heartbeat=300
    ```
 
-   Emit a heartbeat every ~5 min so the monitor isn't silent during a
-   long wait — silence is indistinguishable from a crashed watcher
-   <sup>[[obs]](#ref-obs)</sup>. If the user installs but does not push,
-   the watcher will stay silent forever; pair it with an explicit
-   "tell me when you've installed" instruction or an empty-commit
-   retry on a slow cadence (e.g. every 15 min) so installation always
-   gets tested.
+   Polls the repo's HEAD commit on a 60s cadence; emits `GARNIX_DETECTED
+   head=<sha>` on the absent→present transition and exits 0. Emits a
+   heartbeat line every 5 minutes by default so the monitor isn't silent
+   during a long wait — silence is indistinguishable from a crashed
+   watcher <sup>[[obs]](#ref-obs)</sup>. If the user installs but does
+   not push, the watcher will stay silent forever; pair it with an
+   explicit "tell me when you've installed" instruction or an empty-
+   commit retry on a slow cadence (e.g. every 15 min) so installation
+   always gets tested.
 
 3. **Have the user confirm in-band.** No automation; they say "installed",
-   you push an empty commit and start the per-run monitor (Step 5 watch
-   loop). Faster and more reliable when the user is interactive.
+   you push an empty commit and start the per-run monitor (the "Watch
+   loop" section below — `scripts/watch-checks.sh`). Faster and more
+   reliable when the user is interactive.
 
-4. **Prefilled install URL.** Generate a one-click link that prefills the
-   repo selector so the user doesn't navigate manually:
+4. **Prefilled install URL.**
 
    ```bash
-   read -r owner_id repo_id < <(gh api "repos/<owner>/<repo>" \
-     --jq '[.owner.id, .id] | @tsv')
-   echo "https://github.com/apps/garnix-ci/installations/new/permissions?target_id=${owner_id}&repository_ids[]=${repo_id}"
+   scripts/garnix-install-url.sh <owner>/<repo>
    ```
 
-   `target_id` is the owner's numeric ID; `repository_ids[]` (the `[]`
-   is part of the query-string key) prefills the repo selection. The
-   same URL pattern works to *add* a repo to an existing installation,
-   not just to create new ones <sup>[[obs]](#ref-obs)</sup>.
+   Emits a one-click `installations/new/permissions?target_id=...&
+   repository_ids[]=...` link the user opens. `target_id` is the owner's
+   numeric ID; `repository_ids[]` (the `[]` is part of the query-string
+   key) prefills the repo selection. The same URL pattern works to *add*
+   a repo to an existing installation, not just to create new ones
+   <sup>[[obs]](#ref-obs)</sup>.
 
 5. **Don't bother with fine-grained PATs for this.** They expose a
    "GitHub Apps installations" permission category, but the listing
@@ -606,18 +613,13 @@ form works as the link target <sup>[[obs]](#ref-obs)</sup>.
 ## Step 5 — verify from the CLI
 
 ```bash
-SHA=$(git rev-parse HEAD)
-REPO=<owner>/<repo>
-
-# Suite-level summary (one row per CI app)
-gh api "repos/$REPO/commits/$SHA/check-suites" \
-  --jq '.check_suites[] | {app: .app.slug, status, conclusion}'
-
-# Per-check detail (filter to Garnix)
-gh api "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
-  --jq '.check_runs[] | select(.app.slug=="garnix-ci")
-        | "\(.conclusion // .status)\t\(.name)\t\(.html_url)"'
+scripts/verify-cli.sh <owner>/<repo>            # uses HEAD
+scripts/verify-cli.sh <owner>/<repo> <sha>      # specific commit
 ```
+
+Emits a suite-level summary (one JSON row per CI app) followed by
+per-check `<conclusion-or-status>\t<name>\t<url>` lines filtered to
+Garnix.
 
 A healthy basic flake produces ~10 check-runs in 30–60s
 <sup>[[obs]](#ref-obs)</sup>:
@@ -850,35 +852,18 @@ GitHub Actions. The runs do **not** appear in the Actions tab
 | A specific Darwin attr won't build despite being in the include set | The output is gated to a non-Darwin system, requires IFD that the Darwin builder rejects, or simply doesn't exist for that arch | Confirm the attr resolves locally with `nix eval .#packages.<sys>.<name>.outPath`; if it does, file a probe and verify against `/docs/ci/yaml_config/` | <sup>[[yaml]](#ref-yaml)</sup> |
 | `curl https://app.garnix.io/build/<id>/log` returns 404, and `WebFetch` on the same URL shows only nav chrome (no build output) | The Garnix build page is a client-side SPA; logs aren't on a stable URL the way GitHub Actions logs are | Go through the GitHub check-run URL, not the Garnix one. `gh api "repos/<owner>/<repo>/commits/<sha>/check-runs" --jq '.check_runs[] \| select(.app.slug=="garnix-ci") \| .html_url'` returns a `github.com/<owner>/<repo>/runs/<run-id>` URL whose page renders server-side. `WebFetch` it to extract `hash mismatch ... got: sha256-…` and similar error text | <sup>[[obs]](#ref-obs)</sup> |
 
-## Watch-loop snippet (for autonomous monitoring)
+## Watch loop (for autonomous monitoring)
 
 ```bash
-SHA=$(git rev-parse HEAD); REPO=<owner>/<repo>
-prev=""
-while true; do
-  runs=$(gh api "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
-    --jq '[.check_runs[] | select(.app.slug=="garnix-ci")
-           | {name, status, conclusion}]' 2>/dev/null || echo "[]")
-  count=$(jq 'length' <<<"$runs")
-  [ "$count" = "0" ] && { sleep 30; continue; }
-  summary=$(jq -c -S . <<<"$runs")
-  [ "$summary" != "$prev" ] && {
-    jq -r '[.[] | "\(.name)=\(.status)\(if .conclusion then "/\(.conclusion)" else "" end)"]
-           | join(", ")' <<<"$runs"
-    prev=$summary
-  }
-  pending=$(jq '[.[] | select(.status != "completed")] | length' <<<"$runs")
-  [ "$pending" = "0" ] && {
-    fails=$(jq -c '[.[] | select(.conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped")]' <<<"$runs")
-    [ "$(jq length <<<"$fails")" = "0" ] && echo "all green" || echo "failures: $fails"
-    break
-  }
-  sleep 30
-done
+scripts/watch-checks.sh <owner>/<repo>          # watch HEAD
+scripts/watch-checks.sh <owner>/<repo> <sha>    # watch a specific commit
 ```
 
-Filter on `app.slug == "garnix-ci"` <sup>[[obs]](#ref-obs)</sup> — that's the
-canonical app slug; don't guess others.
+Polls `/check-runs` on a 30s cadence, filtered to `app.slug=="garnix-ci"`
+<sup>[[obs]](#ref-obs)</sup>. Emits one summary line per state change
+(`<name>=<status>[/<conclusion>], ...`). Exits 0 + `all green` when every
+check ends in success / neutral / skipped; exits 1 + `failures: <json>`
+otherwise. Pipe into a Monitor or background it from a tmux pane.
 
 ## Skipping tests on Garnix specifically <sup>[[notes]](#ref-notes)</sup>
 
