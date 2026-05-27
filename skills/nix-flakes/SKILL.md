@@ -1,6 +1,6 @@
 ---
 name: nix-flakes
-description: Generic, language-agnostic Nix flake conventions. Covers input pinning, input ordering (`nixpkgs` → `flake-parts` → `systems` → alphabetical) and the `@inputs` head convention, `inherit` vs `with`, `flake-parts` + the `nix-systems/default` flake for system iteration, single-source-of-truth toolchain pinning, choosing a `*2nix` strategy per language (with a recommendation table covering Node/Python/Rust/Go/Haskell/Ruby/JVM/Scala/Clojure/Elixir/OCaml/PHP/.NET/R/Crystal), devshell command discipline (lowercase categories, `(category, name)` sort, factoring repeated shell prologues), `treefmt` for formatting, `git ls-files` over `find` for repo-aware file enumeration, wiring checks into `nix flake check`, and links to authoritative external references. Use when authoring a new `flake.nix`, reviewing one for idiom drift, picking a language-packaging library, or debugging eval/build issues that smell structural.
+description: Generic, language-agnostic Nix flake conventions. Covers input pinning, input ordering (`nixpkgs` → `flake-parts` → `systems` → alphabetical) and the `@inputs` head convention, `inherit` vs `with`, `flake-parts` + the `nix-systems/default` flake for system iteration, single-source-of-truth toolchain pinning, choosing a `*2nix` strategy per language (with a recommendation table covering Node/Python/Rust/Go/Haskell/Ruby/JVM/Scala/Clojure/Elixir/OCaml/PHP/.NET/R/Crystal), devshell command discipline (lowercase categories, `(category, name)` sort, factoring repeated shell prologues), `treefmt` for formatting, `git ls-files` over `find` for repo-aware file enumeration, keeping non-Nix content (scripts, configs, descriptors) in their own files via `builtins.readFile` / `pkgs.replaceVars` instead of inline `''…''` blocks so editors / linters / LSP can see them, wiring checks into `nix flake check`, and links to authoritative external references. Use when authoring a new `flake.nix`, reviewing one for idiom drift, picking a language-packaging library, or debugging eval/build issues that smell structural.
 ---
 
 # Nix Flake Best Practices
@@ -69,6 +69,61 @@ with pkgs.lib;
 ```
 
 Reserve `with` for cases where you really want a tight ad-hoc scope (e.g. inside a `meta = with lib.licenses; { ... }` for one or two attrs) — and even then, consider whether `inherit` is clearer.
+
+## Don't embed non-Nix content inline
+
+When a Nix expression produces or references content in another language, keep that content in its own file on disk and reference it from Nix. Don't paste the body inline as a multi-line `''…''` string.
+
+Why externalising matters:
+
+- Editors and IDEs apply syntax highlighting, structural navigation, and language-aware indentation only to files with the right extension. They cannot see content inside a Nix `''…''` block.
+- Formatters and linters (`shellcheck`, `shfmt`, language-native style tools, anything wired into `treefmt`) operate per-file by extension. Embedded content is invisible to them.
+- LSP servers only attach to recognised file types — embedded code gets no completion, no go-to-definition, no diagnostics.
+- A diff to a standalone file is reviewable on its own; a diff to a long literal block inside a Nix expression obscures the change and disables `git blame` at file granularity.
+- Nix's `''` indentation-stripping rules quietly mangle content where leading whitespace is significant — a footgun for heredocs, YAML, and other indent-sensitive formats.
+
+### Reference, don't paste
+
+When Nix only needs to pass the content through unchanged, read it from disk:
+
+```nix
+pkgs.writeShellApplication {
+  name = "deploy";
+  runtimeInputs = [ pkgs.kubectl ];
+  text = builtins.readFile ./scripts/deploy.sh;
+}
+```
+
+The corresponding `scripts/deploy.sh` lives in the repo with its native shebang, syntax, and tooling intact.
+
+### Template when values need to be injected
+
+When Nix needs to inject computed values into the file, keep the file on disk with `@varname@` placeholders and let `pkgs.replaceVars` (or its older sibling `pkgs.substituteAll`) produce the substituted output:
+
+```nix
+# scripts/deploy.sh.in contains, verbatim:
+#   kubectl --context=@cluster@ apply -f @manifestPath@
+pkgs.replaceVars ./scripts/deploy.sh.in {
+  cluster = cfg.cluster;
+  manifestPath = "${manifest}/k8s.yaml";
+}
+```
+
+The `.in` suffix is the long-standing autotools / nixpkgs convention for "this is a template, not the final file". Editors still recognise the underlying language (`.sh.in` is parsed as shell, `.json.in` as JSON, etc.), but the suffix signals to humans and to build scripts that the file isn't directly usable until substitution has run. The `@varname@` token convention is what `replaceVars` / `substituteAll` expect — don't invent a different one.
+
+### The line where it's worth externalising
+
+A one-line literal is fine inline. Externalise once any of the following kicks in:
+
+- The content is more than ~3 lines.
+- Whitespace is significant (heredoc bodies, indent-sensitive formats).
+- The content needs `${…}` or `$$` escaping to survive Nix string interpolation.
+- A linter, formatter, or LSP exists for the embedded language and the project would otherwise miss its diagnostics.
+- The content has its own test surface or change history worth tracking separately from the Nix file that consumes it.
+
+### Exception: Nix is genuinely the source of truth
+
+Don't externalise content that Nix is *computing* — an attrset rendered to JSON via `builtins.toJSON`, a config composed from typed module options, a unit file assembled from per-package fragments. There, the on-disk file is a build output, not an input; putting it under `scripts/` would invert the dependency direction and lose the type information Nix is enforcing.
 
 ## Structure
 
