@@ -225,6 +225,7 @@ Use `numtide/devshell` rather than raw `mkShell` — you get the `menu` command,
 ### Command discipline
 
 - **Every command belongs to a `category`.** No uncategorized commands.
+- **Don't shadow names that already resolve in the shell.** Devshell publishes each command as a wrapper on `PATH`, but bash resolves reserved words, built-ins, and keywords *before* `PATH` — so a command named `test`, `time`, `cd`, etc. shows up in `menu` and evaluates fine, but typing the name at the prompt silently runs the built-in instead. The classic offender is `test` (POSIX equivalent to `[`), which makes `test` a tempting and broken name for "run the project's tests" — prefer `tests`. Check candidate names with `type -a <name>` in a clean shell before locking them in; if anything resolves, rename.
 - **Category names are lowercase** — they render as `[lowercase]` in the menu and look right when bracketed.
 - **Keep commands sorted by `(category, name)`** in the source file. Diff noise stays low; readers can find a command without grepping.
 - **Mark each category boundary with a header comment.** Once commands are sorted by `(category, name)`, add a single-line comment naming the category at the top of each run, so the source reads like the menu. Without this, a long list of `{ category = "build"; ... } { category = "build"; ... } { category = "ci"; ... }` is a wall of noise where the boundary between categories is easy to miss in review. Example:
