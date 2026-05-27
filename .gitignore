@@ -3,3 +3,6 @@
 /result-*
 /skills/*/result
 /skills/*/result-*
+
+# Per-branch git worktrees (see `using-git-worktrees` skill).
+/.worktrees/
