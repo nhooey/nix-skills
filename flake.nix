@@ -3,12 +3,15 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-skills.url = "github:nhooey/flake-skills";
-    flake-skills.inputs.nixpkgs.follows = "nixpkgs";
+    systems.url = "github:nix-systems/default";
+    flake-skills = {
+      url = "github:nhooey/flake-skills";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { nixpkgs, flake-skills, ... }@inputs:
+    { nixpkgs, systems, flake-skills, ... }@inputs:
     let
       base = flake-skills.lib.mkAllSkillsFlake {
         inherit nixpkgs;
@@ -16,8 +19,7 @@
         packagePrefix = "agent-skill-";
       };
 
-      systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
-      forSystems = nixpkgs.lib.genAttrs systems;
+      forSystems = nixpkgs.lib.genAttrs (import systems);
 
       packs = {
         # All nix-* skills.
