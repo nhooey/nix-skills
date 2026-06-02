@@ -886,6 +886,47 @@ whether the constraint still holds.
 - Artifact upload from Actions <sup>[[actions]](#ref-actions)</sup>. Use the **diagnostic dump on EXIT** pattern <sup>[[notes]](#ref-notes)</sup> — that's the only way to surface test outputs into the run log.
 - Documented memory/cpu limits <sup>[[actions]](#ref-actions)</sup>. Limits in this skill (~4.5 GB) come from observation <sup>[[notes]](#ref-notes)</sup>, not docs.
 
+## Relative `path:` flake inputs break transitive / Garnix consumption
+
+Garnix builds a flake from an **archived closure** copied to its remote
+builder (`nix flake archive` semantics) — not from your working tree. A
+relative `path:` flake input (e.g. `inputs.foo.url = "path:../../pkgs"`) is
+**not reliably captured in that closure** when the flake is consumed
+transitively or via `?dir=`, so the build can fail to resolve the input even
+though everything works locally <sup>[[path-inputs]](#ref-path-inputs)</sup>.
+
+### Why it passes locally but breaks on Garnix
+
+Observed on Nix 2.34.7 against `github:nhooey/skillspkgs?dir=sources/combinations`,
+whose sub-flake declared `vendored.url = "path:../../pkgs"`
+<sup>[[path-inputs]](#ref-path-inputs)</sup>:
+
+- Fetching `github:owner/repo?dir=<subdir>` captures **only `<subdir>`** as the
+  flake's `sourceInfo` store path. A relative `path:../../<sibling>` then points
+  **outside** that store path — the target does not exist relative to the
+  fetched tree.
+- `nix flake lock` and `nix eval` **succeed locally anyway**, because the local
+  machine resolves the parent repo out-of-band (eval cache / flake registry /
+  re-fetch from GitHub). The bug is invisible on the author's machine.
+- `nix flake archive` does **not** give the relative-`path:` input its own store
+  path in the manifest — its `github:` sub-inputs are captured, but the
+  path-input flake source itself is absent from the closure. A builder fed only
+  that closure (Garnix's remote builder, or a deep transitive consumer like a
+  NUR / aggregator flake) has nothing to resolve `../../<sibling>` against.
+
+So **"green locally, red on Garnix"** is the signature. The same applies to any
+consumer that builds from the archived closure rather than your checkout.
+
+### Rule
+
+For any flake or sub-flake meant to be consumed transitively — as a
+dependency-of-a-dependency, or via `github:owner/repo?dir=<subdir>` — make every
+input **independently fetchable**: use `github:owner/repo?dir=<sibling>`
+references for sibling subdirectories instead of relative `path:` inputs, so each
+input travels in the closure on its own. Reserve relative `path:` inputs for
+flakes consumed **only** directly at the repo root and never transitively
+<sup>[[path-inputs]](#ref-path-inputs)</sup>.
+
 ## References & verification
 
 Each superscript link in the body resolves to a subsection here. Re-verify
@@ -983,3 +1024,14 @@ before relying on a fact for a production decision.
 - **Source:** https://docs.github.com/en/rest/apps/installations
 - **Last verified:** 2026-04-27.
 - **Re-verify:** Fetch the URL; confirm the listing endpoints (`/user/installations`, `/user/installations/{id}/repositories`, `/installation/repositories`, `/repos/{owner}/{repo}/installation`) still require GitHub App authentication (JWT or installation token), not user PATs. If GitHub adds a fine-grained PAT scope that genuinely unlocks the listing endpoints, update Workable monitoring approaches #5 to a positive recommendation.
+
+<a id="ref-path-inputs"></a>
+
+### `[path-inputs]` — relative `path:` flake inputs under transitive / archive consumption
+
+- **Sources:**
+  - NixOS/nix#12438 — `nix flake archive` errors fetching relative `path` inputs (2.26 regression): https://github.com/NixOS/nix/issues/12438
+  - NixOS/nix#14762 — relative path input in a nested subflake resolves against the wrong source tree: https://github.com/nixos/nix/issues/14762
+  - In-session empirical test (2026-06-03) against `github:nhooey/skillspkgs?dir=sources/combinations` (`vendored.url = "path:../../pkgs"`) on Nix 2.34.7: the `?dir=` `sourceInfo` captured only the subdir; `nix flake archive --dry-run --json` omitted a store `path` for the relative-path input node; local `nix eval` of the dependent output nonetheless succeeded via out-of-band refetch.
+- **Last verified:** 2026-06-03 (in-session empirical test + WebSearch of the two nix issues).
+- **Re-verify:** The decisive test is to push a throwaway consumer flake that takes such a sub-flake as an input to a Garnix-enabled repo and confirm the eval/build fails on the builder — the in-session work *inferred* this from the archived closure but did **not** push to Garnix. Locally: `nix flake metadata 'github:owner/repo?dir=<subdir>' --json` and confirm the relative `path:` target lies outside the reported `path`; `nix flake archive --dry-run --json` and confirm the path-input node has no `path` of its own. Also check whether the two nix issues are fixed in your Nix version, which may change the behavior.
