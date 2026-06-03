@@ -21,22 +21,12 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # The skills-git pack installed at project scope on `nix develop`, via
-    # its `reconcileScript` (matching skills-git's own dev shell idiom).
-    skills-git = {
-      url = "github:nhooey/skills-git";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-        flake-skills.follows = "flake-skills";
-      };
-    };
-
-    # skillspkgs' curated `authoring` combination (nix-*, humanizer,
-    # skill-creator, superpowers). Pulled at `?dir=sources/combinations` so
-    # only the combination-builder eval is fetched, not the full skillspkgs
-    # tree.
-    skillspkgs-combinations = {
-      url = "github:nhooey/skillspkgs?dir=sources/combinations";
+    # The dev-shell skill set (git/GitHub + skillspkgs' authoring combination)
+    # as its own sub-flake, so its skill-source inputs stay isolated in
+    # `skills-devshell/flake.lock` rather than this flake's inputs. The
+    # combination is formed there; the dev shell consumes its `reconcileScript`.
+    skills-devshell = {
+      url = "path:./skills-devshell";
       inputs = {
         nixpkgs.follows = "nixpkgs";
         flake-skills.follows = "flake-skills";
@@ -81,20 +71,6 @@
           name = packName;
           skills = builtins.map (n: base.packages.${system}."agent-skill-${n}") skillNames;
         };
-
-      # The dev shell's full skill set as one combination: the skills-git pack
-      # plus skillspkgs' `authoring` combination spliced in as a source. One
-      # reconcile hook converges the union under one owner.
-      devShellSkills = flake-skills.lib.mkCombination {
-        inherit nixpkgs;
-        systems = import inputs.systems;
-        name = "skills-nix-devshell";
-        packagePrefix = "agent-skill-";
-        sources = [
-          { source = inputs.skills-git; }
-          { source = inputs.skillspkgs-combinations.combinations.authoring; }
-        ];
-      };
     in
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
@@ -118,10 +94,10 @@
 
           apps = base.apps.${system};
 
-          # Auto-reconcile skills at project scope on `nix develop`: the
-          # skills-git pack plus skillspkgs' curated `authoring` combination,
-          # merged into one combination that a single reconcile hook converges
-          # — one owner, declarative + idempotent.
+          # Auto-reconcile the dev-shell skill set (git/GitHub + the authoring
+          # combination) at project scope on `nix develop`. The skills-devshell
+          # sub-flake outputs the reconcile one-liner as text per system; this
+          # just splices it in.
           devshells.default = {
             name = "skills-nix";
             motd = ''
@@ -129,7 +105,7 @@
               Run {bold}menu{reset} to list available commands.
             '';
             devshell.startup.install-skills.text = ''
-              ${devShellSkills.reconcileScript system}
+              ${inputs.skills-devshell.reconcileScript.${system}}
             '';
           };
 
