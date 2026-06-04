@@ -4,5 +4,8 @@
 /skills/*/result
 /skills/*/result-*
 
+# Project-scope skills the dev-shell reconcile hook installs.
+/.claude/skills/
+
 # Per-branch git worktrees (see `using-git-worktrees` skill).
 /.worktrees/
