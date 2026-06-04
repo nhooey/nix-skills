@@ -26,7 +26,7 @@
     # `skills-devshell/flake.lock` rather than this flake's inputs. The
     # combination is formed there; the dev shell consumes its `reconcileScript`.
     skills-devshell = {
-      url = "path:./skills-devshell";
+      url = "github:nhooey/skills-nix?dir=skills-devshell";
       inputs = {
         nixpkgs.follows = "nixpkgs";
         flake-skills.follows = "flake-skills";
