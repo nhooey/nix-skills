@@ -49,6 +49,7 @@
       # `skills-git` and `skillspkgs-combinations`.
       base = flake-skills.lib.mkAllSkillsFlake {
         inherit nixpkgs;
+        source = import ./source.nix;
         skillsDir = ./skills;
         packagePrefix = "agent-skill-";
       };
@@ -64,12 +65,15 @@
         ];
       };
 
+      # A pack list is bare skill names; `base.bySkillName` indexes the
+      # per-skill drvs by that stable identity, so the lookup is independent
+      # of how the package keys are owner-namespaced.
       mkEnv =
         system: packName: skillNames:
         flake-skills.lib.mkSkillsEnv {
           pkgs = nixpkgs.legacyPackages.${system};
           name = packName;
-          skills = builtins.map (n: base.packages.${system}."agent-skill-${n}") skillNames;
+          skills = builtins.map (n: base.bySkillName.${system}.${n}) skillNames;
         };
     in
     flake-parts.lib.mkFlake { inherit inputs; } {

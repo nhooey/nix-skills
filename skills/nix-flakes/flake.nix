@@ -9,9 +9,11 @@
     };
   };
 
-  outputs = { nixpkgs, flake-skills, ... }@inputs:
+  outputs =
+    { nixpkgs, flake-skills, ... }@inputs:
     flake-skills.lib.mkSkillFlake {
       inherit nixpkgs;
+      source = import ../../source.nix;
       skillName = "nix-flakes";
       src = ./.;
       packagePrefix = "agent-skills-pack-";
