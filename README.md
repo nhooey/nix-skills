@@ -1,6 +1,6 @@
-# skills
+# nix-skills
 
-[![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2Fnhooey%2Fskills-nix)](https://garnix.io/repo/nhooey/skills-nix)
+[![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2Fnhooey%2Fnix-skills)](https://garnix.io/repo/nhooey/nix-skills)
 
 A collection of [Agent Skills](https://www.anthropic.com/engineering/agent-skills) compatible with Claude Code, Codex, Gemini CLI, Cursor, and the `npx skills` / `gh skill` CLIs.
 
@@ -32,16 +32,16 @@ The default `nix run` is a **read-only preview** — it lists what would be inst
 
 ```sh
 # Preview what would be installed (no side effects)
-nix run github:nhooey/skills-nix
-nix run 'github:nhooey/skills-nix?dir=skills/nix-garnix-ci'
+nix run github:nhooey/nix-skills
+nix run 'github:nhooey/nix-skills?dir=skills/nix-garnix-ci'
 
 # Actually install
-nix run github:nhooey/skills-nix#install                              # all skills
-nix run 'github:nhooey/skills-nix?dir=skills/nix-garnix-ci#install'   # just one
+nix run github:nhooey/nix-skills#install                              # all skills
+nix run 'github:nhooey/nix-skills?dir=skills/nix-garnix-ci#install'   # just one
 
 # Or build a derivation containing the skill files (no install side-effect)
-nix build github:nhooey/skills-nix#all              # all skills, symlinkJoined
-nix build github:nhooey/skills-nix#nix-garnix-ci    # one skill
+nix build github:nhooey/nix-skills#all              # all skills, symlinkJoined
+nix build github:nhooey/nix-skills#nix-garnix-ci    # one skill
 ```
 
 The installer copies into `$CLAUDE_SKILLS_DIR` if set, otherwise `~/.claude/skills/`. Existing skill directories with the same name are replaced.

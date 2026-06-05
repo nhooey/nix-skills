@@ -1,5 +1,5 @@
 {
-  description = "skills-nix: Claude Code skills marketplace as a Nix flake";
+  description = "nix-skills: Claude Code skills marketplace as a Nix flake";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -96,8 +96,8 @@
       # splices into a startup hook.
       devshellSkills = flake-skills.lib.mkCombination {
         inherit nixpkgs;
-        name = "skills-nix-devshell";
-        envName = "agent-skills-skills-nix-devshell";
+        name = "nix-skills-devshell";
+        envName = "agent-skills-nix-skills-devshell";
         packagePrefix = "agent-skill-";
         sources = [
           { source = skills-git; }
@@ -125,9 +125,9 @@
         # (above) yields the reconcile one-liner per system; this just
         # splices it in.
         devshells.default = {
-          name = "skills-nix";
+          name = "nix-skills";
           motd = ''
-            {bold}{14}🚀 Entering skills-nix dev shell{reset}
+            {bold}{14}🚀 Entering nix-skills dev shell{reset}
             Run {bold}menu{reset} to list available commands.
           '';
           devshell.startup.install-skills.text = ''
