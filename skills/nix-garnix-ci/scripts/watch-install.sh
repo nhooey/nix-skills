@@ -29,7 +29,11 @@ Requires: gh.
 EOF
 }
 
-case "${1-}" in -h|--help) usage; exit 0;; esac
+case "${1-}" in -h | --help)
+  usage
+  exit 0
+  ;;
+esac
 
 repo="${1:?usage: watch-install.sh REPO [--branch=BRANCH] [--heartbeat=SECONDS]}"
 shift
@@ -38,18 +42,21 @@ heartbeat=300
 branch=""
 for arg in "$@"; do
   case "$arg" in
-    --heartbeat=*) heartbeat="${arg#--heartbeat=}";;
-    --branch=*)    branch="${arg#--branch=}";;
-    *) echo "watch-install.sh: unknown arg: $arg" >&2; exit 2;;
+  --heartbeat=*) heartbeat="${arg#--heartbeat=}" ;;
+  --branch=*) branch="${arg#--branch=}" ;;
+  *)
+    echo "watch-install.sh: unknown arg: $arg" >&2
+    exit 2
+    ;;
   esac
 done
 
-if ! [[ "$heartbeat" =~ ^[1-9][0-9]*$ ]]; then
+if ! [[ $heartbeat =~ ^[1-9][0-9]*$ ]]; then
   echo "watch-install.sh: --heartbeat must be a positive integer (got: $heartbeat)" >&2
   exit 2
 fi
 
-if [[ -z "$branch" ]]; then
+if [[ -z $branch ]]; then
   endpoint="repos/$repo/commits"
 else
   endpoint="repos/$repo/commits/$branch"
@@ -57,23 +64,23 @@ fi
 
 last_hb=$(date +%s)
 while true; do
-  if [[ -z "$branch" ]]; then
+  if [[ -z $branch ]]; then
     head=$(gh api "$endpoint" --jq '.[0].sha' 2>/dev/null || true)
   else
     head=$(gh api "$endpoint" --jq '.sha' 2>/dev/null || true)
   fi
-  if [[ -z "$head" ]]; then
+  if [[ -z $head ]]; then
     sleep 60
     continue
   fi
   has=$(gh api "repos/$repo/commits/$head/check-suites" \
     --jq '[.check_suites[] | select(.app.slug=="garnix-ci")] | length' 2>/dev/null || echo 0)
-  if [[ "${has:-0}" -gt 0 ]]; then
+  if [[ ${has:-0} -gt 0 ]]; then
     echo "GARNIX_DETECTED head=$head"
     exit 0
   fi
   now=$(date +%s)
-  if (( now - last_hb > heartbeat )); then
+  if ((now - last_hb > heartbeat)); then
     echo "heartbeat: still no garnix-ci on $head at $(date -u +%H:%M:%SZ)"
     last_hb=$now
   fi

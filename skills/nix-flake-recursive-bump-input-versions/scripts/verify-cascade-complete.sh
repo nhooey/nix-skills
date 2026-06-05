@@ -17,12 +17,16 @@ Requires: gh, jq, nix.
 EOF
 }
 
-case "${1-}" in -h|--help) usage; exit 0;; esac
+case "${1-}" in -h | --help)
+  usage
+  exit 0
+  ;;
+esac
 
 here="$(cd "$(dirname "$0")" && pwd)"
 
 mismatches=$("$here/find-behind-inputs.sh" "${1-}")
-if [[ -z "$mismatches" ]]; then
+if [[ -z $mismatches ]]; then
   echo "all green"
   exit 0
 fi

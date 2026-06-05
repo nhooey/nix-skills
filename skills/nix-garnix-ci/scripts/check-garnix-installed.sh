@@ -25,18 +25,22 @@ Requires: gh, git.
 EOF
 }
 
-case "${1-}" in -h|--help) usage; exit 0;; esac
+case "${1-}" in -h | --help)
+  usage
+  exit 0
+  ;;
+esac
 
 repo="${1:?usage: check-garnix-installed.sh REPO [SHA]}"
 sha="${2-$(git rev-parse HEAD)}"
 
 if ! out=$(gh api "repos/$repo/commits/$sha/check-suites" \
-            --jq '[.check_suites[] | select(.app.slug=="garnix-ci")] | length' 2>&1); then
+  --jq '[.check_suites[] | select(.app.slug=="garnix-ci")] | length' 2>&1); then
   echo "gh-error: $out" >&2
   exit 2
 fi
 
-if [[ "${out:-0}" -gt 0 ]]; then
+if [[ ${out:-0} -gt 0 ]]; then
   echo "installed"
   exit 0
 fi

@@ -43,11 +43,15 @@ Requires: git, nix (≥2.19), gh, fmt, awk.
 EOF
 }
 
-case "${1-}" in -h|--help) usage; exit 0;; esac
+case "${1-}" in -h | --help)
+  usage
+  exit 0
+  ;;
+esac
 
 : "${CONSUMER_REPO:?set CONSUMER_REPO}"
 : "${BRANCH:?set BRANCH}"
-: "${BASE:?set BASE (consumer's default branch)}"
+: "${BASE:?set BASE (the consumer default branch)}"
 : "${SUBJECT:?set SUBJECT (commit + PR title)}"
 : "${BODY:?set BODY (commit + PR body, blank-line separated paragraphs)}"
 
@@ -57,11 +61,8 @@ if [[ $# -eq 0 ]]; then
 fi
 
 nix_ver=$(nix --version | awk '{print $NF}')
-if ! awk -v v="$nix_ver" 'BEGIN {
-  split(v, a, ".");
-  if ((a[1]+0) < 2 || ((a[1]+0) == 2 && (a[2]+0) < 19)) exit 1;
-  exit 0
-}'; then
+awk_version_check='BEGIN { split(v, a, "."); if ((a[1]+0) < 2 || ((a[1]+0) == 2 && (a[2]+0) < 19)) exit 1; exit 0 }'
+if ! awk -v v="$nix_ver" "$awk_version_check"; then
   echo "run-bump-pull-request.sh: nix $nix_ver detected; need ≥2.19 for positional 'nix flake update <input>' args (older nix silently bumps every input). Upgrade nix or run the bump steps inline." >&2
   exit 1
 fi

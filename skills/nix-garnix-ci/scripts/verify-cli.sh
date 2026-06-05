@@ -19,7 +19,11 @@ Requires: gh, jq, git.
 EOF
 }
 
-case "${1-}" in -h|--help) usage; exit 0;; esac
+case "${1-}" in -h | --help)
+  usage
+  exit 0
+  ;;
+esac
 
 repo="${1:?usage: verify-cli.sh REPO [SHA]}"
 sha="${2-$(git rev-parse HEAD)}"

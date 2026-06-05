@@ -25,10 +25,14 @@ Requires: nix, jq; gh (only when no predicate is passed).
 EOF
 }
 
-case "${1-}" in -h|--help) usage; exit 0;; esac
+case "${1-}" in -h | --help)
+  usage
+  exit 0
+  ;;
+esac
 
 predicate="${1-}"
-if [[ -z "$predicate" ]]; then
+if [[ -z $predicate ]]; then
   if ! command -v gh >/dev/null; then
     echo "list-filtered-inputs.sh: needs gh on PATH to derive default predicate; pass one explicitly or install gh" >&2
     exit 1

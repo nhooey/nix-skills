@@ -15,20 +15,24 @@ Requires: git.
 EOF
 }
 
-case "${1-}" in -h|--help) usage; exit 0;; esac
+case "${1-}" in -h | --help)
+  usage
+  exit 0
+  ;;
+esac
 
 found=0
 
 while IFS= read -r f; do
-  [[ -z "$f" ]] && continue
+  [[ -z $f ]] && continue
   printf '%s\ttracked\n' "$f"
   found=1
 done < <(git ls-files '*flake.nix' '**/flake.nix' 2>/dev/null || true)
 
 while IFS= read -r f; do
-  [[ -z "$f" ]] && continue
+  [[ -z $f ]] && continue
   printf '%s\tuntracked\n' "$f"
   found=1
 done < <(git ls-files -o --exclude-standard '*flake.nix' '**/flake.nix' 2>/dev/null || true)
 
-[[ "$found" -eq 1 ]]
+[[ $found -eq 1 ]]
