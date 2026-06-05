@@ -26,7 +26,11 @@ Requires: gh, jq, nix.
 EOF
 }
 
-case "${1-}" in -h|--help) usage; exit 0;; esac
+case "${1-}" in -h | --help)
+  usage
+  exit 0
+  ;;
+esac
 
 here="$(cd "$(dirname "$0")" && pwd)"
 
@@ -37,7 +41,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
     printf '%s\t%s\t%s\t%s\tUNRESOLVED\t%s\n' "$key" "$effective_owner" "$repo" "$rev" "$ref"
     continue
   fi
-  if [[ "$head" != "$rev" ]]; then
+  if [[ $head != "$rev" ]]; then
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$key" "$effective_owner" "$repo" "$rev" "$head" "$ref"
   fi
 done

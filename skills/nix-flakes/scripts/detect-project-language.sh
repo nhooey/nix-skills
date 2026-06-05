@@ -44,12 +44,19 @@ Requires: git (falls back to plain `ls -1` outside a repo).
 EOF
 }
 
-case "${1-}" in -h|--help) usage; exit 0;; esac
+case "${1-}" in -h | --help)
+  usage
+  exit 0
+  ;;
+esac
 
 found=0
-emit() { echo "$1"; found=1; }
+emit() {
+  echo "$1"
+  found=1
+}
 
-if files=$(git ls-files -co --exclude-standard 2>/dev/null) && [[ -n "$files" ]]; then
+if files=$(git ls-files -co --exclude-standard 2>/dev/null) && [[ -n $files ]]; then
   :
 else
   files=$(ls -1)
@@ -82,26 +89,26 @@ elif has 'uv\.lock'; then
 elif has 'pdm\.lock'; then
   emit python-pdm
 elif has 'pyproject\.toml'; then
-  if printf '%s\n' "$files" | grep -E '(^|/)pyproject\.toml$' \
-       | xargs -I{} grep -l '\[tool\.poetry\]' {} 2>/dev/null | grep -q .; then
+  if printf '%s\n' "$files" | grep -E '(^|/)pyproject\.toml$' |
+    xargs -I{} grep -l '\[tool\.poetry\]' {} 2>/dev/null | grep -q .; then
     emit python-poetry
   else
     emit python-generic
   fi
 fi
 
-has 'go\.mod'                                           && emit go
-has 'Gemfile\.lock'                                     && emit ruby
-has 'composer\.lock'                                    && emit php
+has 'go\.mod' && emit go
+has 'Gemfile\.lock' && emit ruby
+has 'composer\.lock' && emit php
 printf '%s\n' "$files" | grep -qE '\.(csproj|fsproj|sln)$' && emit dotnet
-{ has 'deps\.edn' || has 'project\.clj'; }              && emit clojure
-has 'pom\.xml'                                          && emit java-maven
+{ has 'deps\.edn' || has 'project\.clj'; } && emit clojure
+has 'pom\.xml' && emit java-maven
 printf '%s\n' "$files" | grep -qE '(^|/)(build|settings)\.gradle(\.kts)?$' && emit java-gradle
-has 'build\.sbt'                                        && emit scala
+has 'build\.sbt' && emit scala
 { has 'cabal\.project' || has 'stack\.yaml' || printf '%s\n' "$files" | grep -qE '\.cabal$'; } && emit haskell
-has 'mix\.exs'                                          && emit elixir
+has 'mix\.exs' && emit elixir
 { has 'dune-project' || printf '%s\n' "$files" | grep -qE '\.opam$'; } && emit ocaml
-has 'shard\.yml'                                        && emit crystal
-{ has 'DESCRIPTION' || has 'rix\.nix'; }                && emit r
+has 'shard\.yml' && emit crystal
+{ has 'DESCRIPTION' || has 'rix\.nix'; } && emit r
 
-[[ "$found" -eq 1 ]]
+[[ $found -eq 1 ]]

@@ -33,7 +33,11 @@ Requires: nix, jq.
 EOF
 }
 
-case "${1-}" in -h|--help) usage; exit 0;; esac
+case "${1-}" in -h | --help)
+  usage
+  exit 0
+  ;;
+esac
 
 nix flake show --all-systems --no-write-lock-file --json | jq -r '
   to_entries[] as $top

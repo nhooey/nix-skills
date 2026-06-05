@@ -21,7 +21,11 @@ Requires: gh.
 EOF
 }
 
-case "${1-}" in -h|--help) usage; exit 0;; esac
+case "${1-}" in -h | --help)
+  usage
+  exit 0
+  ;;
+esac
 
 repo="${1:?usage: garnix-install-url.sh REPO}"
 
@@ -32,7 +36,7 @@ fi
 
 IFS=$'\t' read -r owner_id repo_id <<<"$tsv"
 
-if [[ -z "${owner_id:-}" || -z "${repo_id:-}" ]]; then
+if [[ -z ${owner_id:-} || -z ${repo_id:-} ]]; then
   echo "garnix-install-url.sh: gh returned empty owner or repo id for $repo (response: $tsv)" >&2
   exit 1
 fi
