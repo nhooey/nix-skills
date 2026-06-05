@@ -3,15 +3,15 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-skills = {
-      url = "github:nhooey/flake-skills";
+    agent-skill-flake = {
+      url = "github:nhooey/agent-skill-flake";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
   outputs =
-    { nixpkgs, flake-skills, ... }@inputs:
-    flake-skills.lib.mkSkillFlake {
+    { nixpkgs, agent-skill-flake, ... }@inputs:
+    agent-skill-flake.lib.mkSkillFlake {
       inherit nixpkgs;
       source = import ../../source.nix;
       skillName = "nix-java";
