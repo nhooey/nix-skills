@@ -103,20 +103,9 @@
             # develop`, running the reconcile app from the `skills-devshell/`
             # sub-flake.
             devshell.startup.install-skills.text = devshellSkills.startup;
-            commands = [
-              {
-                category = "skills";
-                name = "reap-skills";
-                help = "Remove every skill this dev shell installed (one owner)";
-                command = devshellSkills.reap;
-              }
-              {
-                category = "skills";
-                name = "update-skills-devshell";
-                help = "Bump the skills-devshell/ sub-flake lock (the skill set)";
-                command = ''nix flake update --flake "$PRJ_ROOT/skills-devshell" "$@"'';
-              }
-            ];
+            # The `skills`-category commands (reap-skills, update-skills-devshell)
+            # carry no repo-specific data, so they come verbatim from the hook.
+            commands = devshellSkills.commands;
           };
 
           treefmt = {
