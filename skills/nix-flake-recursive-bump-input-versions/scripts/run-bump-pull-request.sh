@@ -18,8 +18,10 @@ Env:
                  PR targets the same branch we cut from.
   SUBJECT        commit subject + PR title
   BODY           commit body + PR body; blank-line separated paragraphs.
-                 Passed through `fmt -w 2500` for the PR body so each
-                 paragraph collapses to one GFM line.
+                 Reflowed for the PR body by an awk paragraph-join so each
+                 paragraph collapses to one GFM line. awk, not `fmt` — a
+                 dev shell's `fmt`/`nix fmt` shadows coreutils `fmt` on
+                 PATH, rejects `-w`, and would silently yield an empty body.
 
 Preflight:
   • Requires nix ≥2.19 — earlier versions silently ignore positional
@@ -35,11 +37,11 @@ Steps (fail-fast on any non-zero exit):
   5. nix flake check
   6. git add flake.lock && git commit -m "$SUBJECT" -m "$BODY"
   7. git push -u origin "$BRANCH"
-  8. gh pr create --base "$BASE" --title "$SUBJECT" --body "$(fmt-wrapped body)"
+  8. gh pr create --base "$BASE" --title "$SUBJECT" --body "$(reflowed body)"
 
 Prints the created PR URL to stdout on success.
 
-Requires: git, nix (≥2.19), gh, fmt, awk.
+Requires: git, nix (≥2.19), gh, awk.
 EOF
 }
 
@@ -54,6 +56,11 @@ esac
 : "${BASE:?set BASE (the consumer default branch)}"
 : "${SUBJECT:?set SUBJECT (commit + PR title)}"
 : "${BODY:?set BODY (commit + PR body, blank-line separated paragraphs)}"
+
+# Join the lines within each blank-line-separated paragraph into one GFM line.
+# awk paragraph mode (RS="") instead of `fmt -w` so a dev shell's `fmt`/`nix
+# fmt` command can't shadow coreutils `fmt` and silently blank the PR body.
+reflow() { awk 'BEGIN { RS = ""; ORS = "\n\n" } { gsub(/\n/, " "); print }'; }
 
 if [[ $# -eq 0 ]]; then
   echo "run-bump-pull-request.sh: need at least one input name to bump" >&2
@@ -84,4 +91,4 @@ git add flake.lock
 git commit -m "$SUBJECT" -m "$BODY"
 git push -u origin "$BRANCH"
 
-gh pr create --base "$BASE" --title "$SUBJECT" --body "$(printf '%s' "$BODY" | fmt -w 2500)"
+gh pr create --base "$BASE" --title "$SUBJECT" --body "$(printf '%s\n' "$BODY" | reflow)"

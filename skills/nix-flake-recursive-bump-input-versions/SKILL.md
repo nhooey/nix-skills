@@ -22,7 +22,7 @@ the cross-repo maintenance loop on top of them.
 The deterministic steps in this recipe live in `scripts/` next to this
 file. Each script takes `--help` for usage. Most assume `gh`, `jq`,
 `nix`, and `git` on `PATH`; `run-bump-pull-request.sh` also needs nix
-≥2.19 and `fmt`.
+≥2.19 and `awk`.
 
 **Invocation path.** Examples in this file write the script paths as
 `scripts/<name>.sh` for brevity, but the working directory at invocation
@@ -191,8 +191,10 @@ Follow `git-commit-message-format` and `github-pr-mirrors-commit`:
 
 - **Subject:** `Bump <input1>, <input2>, <input3>` (alphabetical).
 - **Body:** one paragraph per input, **blank line between paragraphs**.
-  `fmt -w 2500` collapses adjacent non-empty lines — without the blank
-  line, three paragraphs become one wall of text in the PR body.
+  An awk paragraph-join (`RS=""`) collapses the lines within each
+  paragraph — without the blank line, three paragraphs become one wall
+  of text in the PR body. (awk, not `fmt -w`: a dev shell's `fmt`/`nix
+  fmt` shadows coreutils `fmt` and would silently blank the body.)
 - **Each paragraph:** `<input>: <PR number(s)> — <what changed>`,
   linking back to the upstream PR(s) that landed in the consumer.
 
