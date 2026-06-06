@@ -29,36 +29,22 @@
     }@inputs:
     let
       # The skills this repo outputs: every skill under ./skills built into
-      # per-skill packages (consumed by `packs`/`mkEnv` below) plus the base
-      # install/preview apps.
+      # per-skill packages plus the base install/preview apps.  The `name`
+      # argument names the aggregate "all" bundle by owner + topic rather than
+      # letting it default to the owner-wide `agent-skills-nhooey-all`.  That
+      # owner-all is unresolvable — no single repo holds all of nhooey's skills
+      # — and collides across every nhooey repo under skillspkgs / nur-packages'
+      # last-write-wins `//` merge; the owner+topic name survives, mirroring
+      # git-skills's `agent-skills-nhooey-git-all`.  The aggregate carries the
+      # home-manager `isFlakeSkillsEnv` passthru itself, so `default` is
+      # directly installable — no hand-rolled pack needed.
       base = agent-skill-flake.lib.mkAllSkillsFlake {
         inherit nixpkgs;
         source = import ./source.nix;
         skillsDir = ./skills;
         packagePrefix = "agent-skill-";
+        name = "agent-skills-nhooey-nix-all";
       };
-
-      packs = {
-        # All nix-* skills.
-        agent-skills-nix-all = [
-          "nix-clojure"
-          "nix-flake-recursive-bump-input-versions"
-          "nix-flakes"
-          "nix-garnix-ci"
-          "nix-java"
-        ];
-      };
-
-      # A pack list is bare skill names; `base.bySkillName` indexes the
-      # per-skill drvs by that stable identity, so the lookup is independent
-      # of how the package keys are owner-namespaced.
-      mkEnv =
-        system: packName: skillNames:
-        agent-skill-flake.lib.mkSkillsEnv {
-          pkgs = nixpkgs.legacyPackages.${system};
-          name = packName;
-          skills = builtins.map (n: base.bySkillName.${system}.${n}) skillNames;
-        };
 
     in
     flake-parts.lib.mkFlake { inherit inputs; } {
@@ -85,9 +71,7 @@
       perSystem =
         { system, ... }:
         {
-          packages =
-            base.packages.${system}
-            // builtins.mapAttrs (packName: skillNames: mkEnv system packName skillNames) packs;
+          packages = base.packages.${system};
 
           apps = base.apps.${system};
 
