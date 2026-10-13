@@ -16,6 +16,5 @@
       source = import ../../source.nix;
       skillName = "nix-flake-recursive-bump-input-versions";
       src = ./.;
-      packagePrefix = "agent-skills-pack-";
     };
 }
