@@ -16,6 +16,5 @@
       source = import ../../source.nix;
       skillName = "nix-garnix-ci";
       src = ./.;
-      packagePrefix = "agent-skills-pack-";
     };
 }
