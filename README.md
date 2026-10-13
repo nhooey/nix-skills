@@ -21,7 +21,8 @@ cp -r <repo>/skills/* ~/.claude/skills/
 This repo also works as a [Claude Code plugin marketplace](https://docs.claude.com/en/docs/claude-code/plugins). Add it with:
 
 ```sh
-/plugin marketplace add <owner>/<repo>
+/plugin install nix-skills --marketplace nhooey/nix-skills   # Claude Code 2.1.275+
+/plugin marketplace add nhooey/nix-skills                     # older versions, then /plugin install
 ```
 
 ### Install via Nix flake

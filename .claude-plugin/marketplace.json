@@ -1,11 +1,12 @@
 {
-  "name": "skills",
+  "name": "nix-skills",
+  "description": "Agent skills for Nix flakes.",
   "owner": {
     "name": "nhooey"
   },
   "plugins": [
     {
-      "name": "skills",
+      "name": "nix-skills",
       "source": ".",
       "description": "Agent skills collection. Skills are auto-discovered from ./skills/*."
     }
