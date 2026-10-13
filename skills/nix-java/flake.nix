@@ -16,6 +16,5 @@
       source = import ../../source.nix;
       skillName = "nix-java";
       src = ./.;
-      packagePrefix = "agent-skills-pack-";
     };
 }

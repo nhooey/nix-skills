@@ -16,6 +16,5 @@
       source = import ../../source.nix;
       skillName = "nix-clojure";
       src = ./.;
-      packagePrefix = "agent-skills-pack-";
     };
 }
