@@ -1,7 +1,5 @@
 # nix-skills
 
-[![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2Fnhooey%2Fnix-skills)](https://garnix.io/repo/nhooey/nix-skills)
-
 A collection of [Agent Skills](https://www.anthropic.com/engineering/agent-skills) compatible with Claude Code, Codex, Gemini CLI, Cursor, and the `npx skills` / `gh skill` CLIs.
 
 ## Install
