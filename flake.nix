@@ -42,7 +42,6 @@
         inherit nixpkgs;
         source = import ./source.nix;
         skillsDir = ./skills;
-        packagePrefix = "agent-skill-";
         name = "agent-skills-nhooey-nix-all";
       };
 

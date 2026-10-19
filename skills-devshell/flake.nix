@@ -38,7 +38,6 @@
       systems = import inputs.systems;
       name = "nix-skills-devshell";
       envName = "agent-skills-nix-skills-devshell";
-      packagePrefix = "agent-skill-";
       sources = [
         { source = skillspkgs-combinations.combinations.authoring-with-git; }
       ];

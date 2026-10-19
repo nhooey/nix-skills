@@ -16,6 +16,5 @@
       source = import ../../source.nix;
       skillName = "nix-flakes";
       src = ./.;
-      packagePrefix = "agent-skills-pack-";
     };
 }
