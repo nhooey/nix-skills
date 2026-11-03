@@ -1,6 +1,6 @@
 ---
 name: nix-flakes
-description: Generic, language-agnostic Nix flake conventions. Covers input pinning, input ordering (`nixpkgs` → `flake-parts` → `systems` → alphabetical) and the `@inputs` head convention, `inherit` vs `with`, `flake-parts` + the `nix-systems/default` flake for system iteration, single-source-of-truth toolchain pinning, choosing a `*2nix` strategy per language (with a recommendation table covering Node/Python/Rust/Go/Haskell/Ruby/JVM/Scala/Clojure/Elixir/OCaml/PHP/.NET/R/Crystal), devshell command discipline (lowercase categories, `(category, name)` sort, factoring repeated shell prologues), `treefmt` for formatting, `git ls-files` over `find` for repo-aware file enumeration, keeping non-Nix content (scripts, configs, descriptors) in their own files via `builtins.readFile` / `pkgs.replaceVars` instead of inline `''…''` blocks so editors / linters / LSP can see them, wiring checks into `nix flake check`, resolving symlinked directories (macOS `/tmp`, `/var`, `$TMPDIR`) before a `path:` flakeref, and links to authoritative external references. Use when authoring a new `flake.nix`, reviewing one for idiom drift, picking a language-packaging library, or debugging eval/build issues that smell structural.
+description: Generic, language-agnostic Nix flake conventions. Covers input pinning, input ordering (`nixpkgs` → `flake-parts` → `systems` → alphabetical) and the `@inputs` head convention, `inherit` vs `with`, `flake-parts` + the `nix-systems/default` flake for system iteration, single-source-of-truth toolchain pinning, choosing a `*2nix` strategy per language (with a recommendation table covering Node/Python/Rust/Go/Haskell/Ruby/JVM/Scala/Clojure/Elixir/OCaml/PHP/.NET/R/Crystal), devshell command discipline (lowercase categories, `(category, name)` sort, factoring repeated shell prologues), `treefmt` for formatting, `git ls-files` over `find` for repo-aware file enumeration, keeping non-Nix content (scripts, configs, descriptors) in their own files via `builtins.readFile` / `pkgs.replaceVars` instead of inline `''…''` blocks so editors / linters / LSP can see them, wiring checks into `nix flake check`, platform tests through `stdenv.hostPlatform.isDarwin` and friends rather than the deprecated `stdenv.isDarwin` aliases and their "evaluation warning: stdenv.isDarwin is deprecated", resolving symlinked directories (macOS `/tmp`, `/var`, `$TMPDIR`) before a `path:` flakeref, and links to authoritative external references. Use when authoring a new `flake.nix`, reviewing one for idiom drift, picking a language-packaging library, or debugging eval/build issues that smell structural.
 ---
 
 # Nix Flake Best Practices
@@ -154,6 +154,19 @@ Don't externalise content that Nix is *computing* — an attrset rendered to JSO
 
   For flake-utils-style flakes, the equivalent is `flake-utils.lib.eachDefaultSystem` — same idea, different surface. Either way, downstream consumers can override the `systems` input to add or remove systems without forking your flake.
 - **Single source of truth for `pkgs`.** Resolve once inside the `let` (or `_module.args.pkgs` under flake-parts) and reuse — don't repeat the lookup at every call site.
+
+## Platform checks: `stdenv.hostPlatform`, not `stdenv.is*`
+
+Test the platform through `stdenv.hostPlatform`: `pkgs.stdenv.hostPlatform.isDarwin`, `.isLinux`, `.isAarch64`, `.isx86_64`, or `lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ … ]`. The shorthands on `stdenv` itself are deprecated aliases in nixpkgs, and each use prints a warning on every evaluation:
+
+```text
+evaluation warning: stdenv.isDarwin is deprecated, use stdenv.hostPlatform.isDarwin instead
+```
+
+- **Which names:** every `stdenv.is*` platform test: `isDarwin`, `isLinux`, `isSunOS`, `isCygwin`, `isBSD`, `isFreeBSD`, `isOpenBSD`, `isi686`, `isx86_32`, `isx86_64`, `is32bit`, `is64bit`, `isAarch32`, `isAarch64`, `isMips` and `isBigEndian`. The list is in nixpkgs' `pkgs/stdenv/generic/default.nix`. `stdenv.system` is not deprecated; it already means the host platform's system.
+- **Why host, not build:** these tests ask what the package will *run on*, which is the host platform. `stdenv.buildPlatform` is the machine doing the build, and it differs only when cross-compiling, so code that switched to it silently would break cross builds.
+- **Fix every occurrence:** `git grep -nE 'stdenv\.is[A-Za-z0-9_]+'` lists them, and the same goes for `pkgs.stdenv.is…` and `stdenv.is…` bound through `inherit (pkgs) stdenv`. With `config.allowAliases = false`, which some CI sets, the aliases are gone, so the old form stops evaluating instead of warning.
+- **When the warning isn't from your code:** an input's own Nix can print it too. To find where it comes from, make the warning an error and print the trace: `nix eval --option abort-on-warn true --show-trace .#<attr>` (or `nix build …` with the same options). If the code belongs to an input, update the input or report it upstream; don't patch around it locally.
 
 ## Toolchain pinning
 
