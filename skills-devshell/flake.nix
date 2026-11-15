@@ -14,9 +14,9 @@
     };
 
     # skillspkgs' curated `authoring-with-git` combination (nix + humanizer +
-    # anthropic/daymade skill-creation + superpowers + the whole git/GitHub
-    # pack), surfaced through its own subdir flake so it stays re-composable as
-    # a source. This is the dev shell's entire skill set in one combination.
+    # anthropic skill-creation + superpowers + the whole git/GitHub pack),
+    # surfaced through its own subdir flake so it stays re-composable as a
+    # source. This is the dev shell's entire skill set in one combination.
     skillspkgs-combinations = {
       url = "github:nhooey/skillspkgs?dir=sources/combinations";
       inputs = {
