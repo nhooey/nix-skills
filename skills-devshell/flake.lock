@@ -40,50 +40,6 @@
         "type": "github"
       }
     },
-    "daymade": {
-      "inputs": {
-        "agent-skill-flake": [
-          "skillspkgs-combinations",
-          "agent-skill-flake"
-        ],
-        "daymade-skills-src": "daymade-skills-src",
-        "nixpkgs": [
-          "skillspkgs-combinations",
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "dir": "pkgs/daymade",
-        "lastModified": 1793720172,
-        "narHash": "sha256-b6uZvRx5mWktnvREWhtXGnichutI+0au6zUtPczrAvk=",
-        "owner": "nhooey",
-        "repo": "skillspkgs",
-        "rev": "95453c8001da8a31fbb6b901ee13de87714a1c06",
-        "type": "github"
-      },
-      "original": {
-        "dir": "pkgs/daymade",
-        "owner": "nhooey",
-        "repo": "skillspkgs",
-        "type": "github"
-      }
-    },
-    "daymade-skills-src": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1791859419,
-        "narHash": "sha256-wF7lZHBemSXtGDDyfopYOShbmaVYUhtPqF6pfVDrAa0=",
-        "owner": "daymade",
-        "repo": "claude-code-skills",
-        "rev": "b05fda19c1d09836571e027b44f12dc5d6cf3a8a",
-        "type": "github"
-      },
-      "original": {
-        "owner": "daymade",
-        "repo": "claude-code-skills",
-        "type": "github"
-      }
-    },
     "devshell": {
       "inputs": {
         "nixpkgs": [
@@ -327,7 +283,6 @@
         "agent-skill-flake": [
           "agent-skill-flake"
         ],
-        "daymade": "daymade",
         "git-skills": "git-skills",
         "humanizer": "humanizer",
         "nix-skills": "nix-skills",
@@ -340,11 +295,11 @@
       },
       "locked": {
         "dir": "sources/combinations",
-        "lastModified": 1793733092,
-        "narHash": "sha256-p8hv55MBrpAHTQfGPpneecXRmIfkRlBlECZjRdlejco=",
+        "lastModified": 1794756468,
+        "narHash": "sha256-A+Dhnn3QV/7e4CMUujFfpWVq9qhAr8jTwCoYS44cKkw=",
         "owner": "nhooey",
         "repo": "skillspkgs",
-        "rev": "11ac4efb740a0eca60c73300740db820a74c5906",
+        "rev": "9893a8ae431452b37010e4228d3122e641448cd7",
         "type": "github"
       },
       "original": {
