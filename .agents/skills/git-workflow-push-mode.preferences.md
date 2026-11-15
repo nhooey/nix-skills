@@ -1,0 +1,1 @@
+- Mode: 2 (PRs always, never push main)
