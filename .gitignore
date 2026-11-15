@@ -4,7 +4,10 @@
 /skills/*/result
 /skills/*/result-*
 
-# Project-scope skills the dev-shell reconcile hook installs.
+# Project-scope skill installs from `nix develop`'s startup hooks; the
+# skills' preferences files beside them are the project's own.
+/.agents/skills/*
+!/.agents/skills/*.preferences.md
 /.claude/skills/
 
 # Per-branch git worktrees (see `using-git-worktrees` skill).
