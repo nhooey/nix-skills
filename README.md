@@ -72,6 +72,13 @@ Each skill derivation produces `$out/share/claude-skills/<name>/` containing `SK
 
 ## Adding a new skill
 
+In the dev shell (`nix develop`), scaffold it with:
+
+```sh
+nix-skills new-skill my-skill "What the skill does, and when the model should invoke it."
+nix-skills update-skill-locks my-skill
+```
+
 Each skill lives in its own folder under `skills/`, named with `lowercase-with-hyphens`. The folder must contain a `SKILL.md` whose YAML frontmatter `name` field matches the folder name.
 
 ```
@@ -93,7 +100,7 @@ description: What the skill does, and when the model should invoke it.
 
 Write the `description` so an agent can decide whether to invoke the skill from that one line — describe both *what it does* and *when to use it*.
 
-To make a new skill installable via Nix in isolation, drop a `flake.nix` into the skill folder modeled on `skills/nix-flakes/flake.nix`. The top-level flake auto-discovers any subdirectory of `skills/` that contains a `SKILL.md`, so the aggregate package picks up new skills without further changes.
+`new-skill` also writes the skill's own `flake.nix`, so it installs on its own, and adds its row to the table above. The top-level flake auto-discovers any subdirectory of `skills/` that contains a `SKILL.md`, so the aggregate package picks up new skills without further changes.
 
 ## License
 
