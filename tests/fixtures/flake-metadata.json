@@ -1,0 +1,38 @@
+{
+  "description": "fixture consumer flake",
+  "locks": {
+    "root": "root",
+    "version": 7,
+    "nodes": {
+      "root": {
+        "inputs": {
+          "nixpkgs": "nixpkgs",
+          "flake-parts": "flake-parts",
+          "foo": "foo"
+        }
+      },
+      "nixpkgs": {
+        "locked": { "type": "github", "owner": "NixOS", "repo": "nixpkgs", "rev": "1111111111111111111111111111111111111111" },
+        "original": { "type": "github", "owner": "NixOS", "repo": "nixpkgs", "ref": "nixos-unstable" }
+      },
+      "flake-parts": {
+        "inputs": { "nixpkgs-lib": ["nixpkgs"] },
+        "locked": { "type": "github", "owner": "hercules-ci", "repo": "flake-parts", "rev": "2222222222222222222222222222222222222222" },
+        "original": { "type": "github", "owner": "hercules-ci", "repo": "flake-parts" }
+      },
+      "foo": {
+        "inputs": { "bar": "bar", "nixpkgs": ["root", "nixpkgs"] },
+        "locked": { "type": "github", "owner": "nhooey", "repo": "foo", "rev": "3333333333333333333333333333333333333333" },
+        "original": { "type": "github", "owner": "nhooey", "repo": "foo" }
+      },
+      "bar": {
+        "locked": { "type": "github", "owner": "nhooey", "repo": "bar", "rev": "4444444444444444444444444444444444444444" },
+        "original": { "type": "github", "owner": "nhooey", "repo": "bar", "ref": "main" }
+      },
+      "dead": {
+        "locked": { "type": "github", "owner": "nhooey", "repo": "dead", "rev": "5555555555555555555555555555555555555555" },
+        "original": { "type": "github", "owner": "nhooey", "repo": "dead" }
+      }
+    }
+  }
+}

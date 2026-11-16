@@ -37,7 +37,7 @@
       # last-write-wins `//` merge; the owner+topic name survives, mirroring
       # git-skills's `agent-skills-nhooey-git-all`.  The aggregate carries the
       # home-manager `isFlakeSkillsEnv` passthru itself, so `default` is
-      # directly installable — no hand-rolled pack needed.
+      # directly installable.
       base = agent-skill-flake.lib.mkAllSkillsFlake {
         inherit nixpkgs;
         source = import ./source.nix;
@@ -50,8 +50,7 @@
       systems = import inputs.systems;
       imports = [
         # Bundles numtide/devshell + the motd, install-skills startup, and the
-        # standard (ci/dev/maintenance) + skills command lists, replacing the
-        # hand-rolled devshell wiring this repo used to carry. The runtime
+        # standard (ci/dev/maintenance) + skills command lists. The runtime
         # `skills-devshell/` sub-flake is reconciled by the module's startup.
         inputs.agent-skill-flake.flakeModules.devshellSkills
         inputs.treefmt-nix.flakeModule
@@ -68,15 +67,72 @@
       flake.reconcileScript = base.reconcileScript;
 
       perSystem =
-        { system, ... }:
+        { pkgs, system, ... }:
+        let
+          batsWithLibraries = pkgs.bats.withLibraries (p: [
+            p.bats-support
+            p.bats-assert
+          ]);
+
+          # The repository's own commands (test, new-skill,
+          # update-skill-locks), one tool on the dev shell's PATH.
+          nix-skills-tool = pkgs.writeShellApplication {
+            name = "nix-skills";
+            runtimeInputs = [
+              batsWithLibraries
+              pkgs.gawk
+              pkgs.git
+              pkgs.jq
+            ];
+            text = builtins.readFile ./bin/nix-skills;
+          };
+        in
         {
           packages = base.packages.${system};
 
+          # The bats suite under tests/, run against the bundled scripts with
+          # stub `nix` and `gh` on PATH, so it needs no network or store.
+          checks.bats =
+            pkgs.runCommand "nix-skills-bats"
+              {
+                src = pkgs.lib.fileset.toSource {
+                  root = ./.;
+                  fileset = pkgs.lib.fileset.unions [
+                    ./bin
+                    ./skills
+                    ./tests
+                  ];
+                };
+                nativeBuildInputs = [
+                  batsWithLibraries
+                  pkgs.gawk
+                  pkgs.git
+                  pkgs.jq
+                ];
+              }
+              ''
+                cp -r "$src" source
+                chmod -R u+w source
+                patchShebangs source
+                bats --print-output-on-failure source/tests
+                touch "$out"
+              '';
+
+          # Builds the tool, which runs shellcheck over bin/nix-skills.
+          checks.nix-skills-tool = nix-skills-tool;
+
           apps = base.apps.${system};
 
-          # The devShell (motd, install-skills startup reconciling the
-          # `skills-devshell/` sub-flake, and the standard + skills command
-          # lists) comes entirely from the imported devshellSkills module.
+          # The devShell's motd, install-skills startup and standard + skills
+          # commands come from the imported devshellSkills module; this list
+          # concatenates onto its menu.
+          devshells.default.commands = [
+            {
+              category = "dev";
+              package = nix-skills-tool;
+              help = "Run the bats suite, scaffold a skill, or update the per-skill flake locks";
+            }
+          ];
 
           treefmt = {
             projectRootFile = "flake.nix";

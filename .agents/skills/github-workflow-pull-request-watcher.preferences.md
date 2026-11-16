@@ -1,0 +1,2 @@
+- Delete local branch: yes
+- Update default branch: yes
