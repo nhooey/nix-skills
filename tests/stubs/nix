@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Stub nix for the bats suite. Logs each call to $STUB_LOG and answers the
+# subcommands the skills' scripts use:
+#   --version          "nix (Nix) $NIX_VERSION" (default 2.24.0)
+#   flake metadata     cat $NIX_METADATA_JSON
+#   flake update ARGS  appends a line to ./flake.lock, so there is a change
+#   flake check        exits $NIX_FLAKE_CHECK_EXIT (default 0)
+#   eval ... path:P#a  $NIX_EVAL_LINK for a P under /link/, else
+#                      $NIX_EVAL_PHYSICAL: `ok`, `symlink` or `other`
+set -euo pipefail
+
+printf 'nix %s\n' "$*" >>"$STUB_LOG"
+
+args=()
+for a in "$@"; do
+  case "$a" in
+  --extra-experimental-features) skip=1 ;;
+  *)
+    if [[ ${skip-} == 1 ]]; then
+      skip=0
+    else
+      args+=("$a")
+    fi
+    ;;
+  esac
+done
+
+eval_result() {
+  case "$1" in
+  ok) printf 'ok' ;;
+  symlink)
+    echo "error: path '/tmp/x/link' is a symlink" >&2
+    exit 1
+    ;;
+  *)
+    echo "error: something else went wrong" >&2
+    exit 1
+    ;;
+  esac
+}
+
+case "${args[0]-} ${args[1]-}" in
+"--version "*) echo "nix (Nix) ${NIX_VERSION:-2.24.0}" ;;
+"flake metadata") cat "$NIX_METADATA_JSON" ;;
+"flake update") echo "updated ${args[*]:2}" >>flake.lock ;;
+"flake check") exit "${NIX_FLAKE_CHECK_EXIT:-0}" ;;
+"eval "*)
+  ref="${args[${#args[@]} - 1]}"
+  if [[ $ref == */link/* ]]; then
+    eval_result "${NIX_EVAL_LINK:-symlink}"
+  else
+    eval_result "${NIX_EVAL_PHYSICAL:-ok}"
+  fi
+  ;;
+*)
+  echo "stub nix: unhandled: $*" >&2
+  exit 64
+  ;;
+esac

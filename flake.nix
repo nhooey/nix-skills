@@ -67,9 +67,39 @@
       flake.reconcileScript = base.reconcileScript;
 
       perSystem =
-        { system, ... }:
+        { pkgs, system, ... }:
         {
           packages = base.packages.${system};
+
+          # The bats suite under tests/, run against the bundled scripts with
+          # stub `nix` and `gh` on PATH, so it needs no network or store.
+          checks.bats =
+            pkgs.runCommand "nix-skills-bats"
+              {
+                src = pkgs.lib.fileset.toSource {
+                  root = ./.;
+                  fileset = pkgs.lib.fileset.unions [
+                    ./skills
+                    ./tests
+                  ];
+                };
+                nativeBuildInputs = [
+                  (pkgs.bats.withLibraries (p: [
+                    p.bats-support
+                    p.bats-assert
+                  ]))
+                  pkgs.gawk
+                  pkgs.git
+                  pkgs.jq
+                ];
+              }
+              ''
+                cp -r "$src" source
+                chmod -R u+w source
+                patchShebangs source
+                bats --print-output-on-failure source/tests
+                touch "$out"
+              '';
 
           apps = base.apps.${system};
 

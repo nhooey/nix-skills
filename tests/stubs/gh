@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Stub gh for the bats suite. Logs each call to $STUB_LOG, one argument per
+# line after a `gh` header, and answers:
+#   api user ...                  $GH_LOGIN (default nhooey)
+#   api repos/O/R/commits/REF ... the SHA on the `O/R@REF SHA` line of
+#                                 $GH_HEADS, or a 404 and exit 1
+#   pr create ...                 $GH_PR_URL
+set -euo pipefail
+
+{
+  echo gh
+  printf '  %s\n' "$@"
+} >>"$STUB_LOG"
+
+case "$1 ${2-}" in
+"api user") echo "${GH_LOGIN:-nhooey}" ;;
+"api repos/"*)
+  spec="${2#repos/}"
+  owner_repo="${spec%%/commits/*}"
+  ref="${spec#*/commits/}"
+  if sha=$(awk -v k="$owner_repo@$ref" '$1 == k { print $2; found = 1 } END { exit !found }' "${GH_HEADS:-/dev/null}"); then
+    echo "$sha"
+  else
+    echo "gh: Not Found (HTTP 404)"
+    exit 1
+  fi
+  ;;
+"pr create") echo "${GH_PR_URL:-https://github.com/example/consumer/pull/1}" ;;
+*)
+  echo "stub gh: unhandled: $*" >&2
+  exit 64
+  ;;
+esac
