@@ -73,6 +73,30 @@ MD
   assert_line --index 2 ""
 }
 
+@test "new-skill keeps a description with YAML and table syntax intact" {
+  local desc='Do X: then Y | Z, with a \t and a "quote".'
+  run "$TOOL" new-skill nix-demo "$desc"
+  assert_success
+
+  # Plain, `Do X: then Y` would be a YAML mapping error.
+  run sed -n 3p skills/nix-demo/SKILL.md
+  assert_output 'description: "Do X: then Y | Z, with a \\t and a \"quote\"."'
+
+  run grep -F '| nix-demo |' README.md
+  assert_output '| nix-demo | Do X: then Y \| Z, with a \t and a "quote". | [skills/nix-demo](skills/nix-demo) |'
+}
+
+@test "new-skill quotes a description YAML would read as another type" {
+  local desc
+  for desc in yes 42 '- a list' '#hash' 'ends with:'; do
+    rm -rf skills/nix-demo
+    run "$TOOL" new-skill nix-demo "$desc"
+    assert_success
+    run sed -n 3p skills/nix-demo/SKILL.md
+    assert_output "description: \"$desc\""
+  done
+}
+
 @test "new-skill appends the row when the table ends the README" {
   printf '## Skills in this repo\n\n| Name | Description | Link |\n| --- | --- | --- |\n' >README.md
   run "$TOOL" new-skill beta "Second."
