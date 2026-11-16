@@ -1,6 +1,8 @@
 ---
 name: nix-flake-recursive-bump-input-versions
 description: Bump every flake input that matches a filter (owner, org, name pattern, branch ref) across a tree of flakes in several repos. Compares each locked rev to the tip of its branch on GitHub, sorts the inputs that are behind into direct and transitive, then opens one `nix flake update` pull request per consumer flake, leaves first, each waiting for the one below it to merge. Bundled scripts do the filtering, the comparison, the classification, each bump and the final check. Use when the user says "bump versions", "refresh the lock" or "propagate the change up the chain", or when a locked rev turns out to be behind upstream during other work.
+allowed-tools:
+  - 'Bash(gh api *)'
 ---
 
 # Recursive flake-input version bumps
