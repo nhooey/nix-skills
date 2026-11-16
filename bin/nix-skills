@@ -55,7 +55,8 @@ skills/NAME/flake.nix so the skill installs on its own, and a row for it in
 the README's "Skills in this repo" table. NAME is lowercase words joined by
 hyphens. Refuses when skills/NAME already exists.
 
-Lock the new flake afterwards with \`$PROG update-skill-locks NAME\`.
+Lock the new flake afterwards with \`git add skills/NAME\` and then
+\`$PROG update-skill-locks NAME\`: Nix doesn't see an untracked flake.nix.
 EOF
 }
 
@@ -206,7 +207,8 @@ cmd_new_skill() {
   rm -f "$tmp"
 
   echo "Created skills/$name/SKILL.md and skills/$name/flake.nix; added its README row."
-  echo "Next: write the skill, then run '$PROG update-skill-locks $name'."
+  echo "Next: write the skill, then run 'git add skills/$name' and"
+  echo "'$PROG update-skill-locks $name' (Nix doesn't see an untracked flake.nix)."
 }
 
 cmd_update_skill_locks() {

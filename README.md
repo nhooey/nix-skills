@@ -76,6 +76,7 @@ In the dev shell (`nix develop`), scaffold it with:
 
 ```sh
 nix-skills new-skill my-skill "What the skill does, and when the model should invoke it."
+git add skills/my-skill   # Nix doesn't see an untracked flake.nix
 nix-skills update-skill-locks my-skill
 ```
 

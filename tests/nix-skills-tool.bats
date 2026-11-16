@@ -58,6 +58,8 @@ MD
 @test "new-skill writes SKILL.md, flake.nix and the README row" {
   run "$TOOL" new-skill nix-demo "Demo patterns in Nix flakes."
   assert_success
+  # Nix can't lock a flake.nix git doesn't track, so the next step adds it.
+  assert_output --partial "run 'git add skills/nix-demo' and"
 
   run head -4 skills/nix-demo/SKILL.md
   assert_output "$(printf -- '---\nname: nix-demo\ndescription: Demo patterns in Nix flakes.\n---')"
