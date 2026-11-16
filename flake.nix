@@ -37,7 +37,7 @@
       # last-write-wins `//` merge; the owner+topic name survives, mirroring
       # git-skills's `agent-skills-nhooey-git-all`.  The aggregate carries the
       # home-manager `isFlakeSkillsEnv` passthru itself, so `default` is
-      # directly installable — no hand-rolled pack needed.
+      # directly installable.
       base = agent-skill-flake.lib.mkAllSkillsFlake {
         inherit nixpkgs;
         source = import ./source.nix;
@@ -50,8 +50,7 @@
       systems = import inputs.systems;
       imports = [
         # Bundles numtide/devshell + the motd, install-skills startup, and the
-        # standard (ci/dev/maintenance) + skills command lists, replacing the
-        # hand-rolled devshell wiring this repo used to carry. The runtime
+        # standard (ci/dev/maintenance) + skills command lists. The runtime
         # `skills-devshell/` sub-flake is reconciled by the module's startup.
         inputs.agent-skill-flake.flakeModules.devshellSkills
         inputs.treefmt-nix.flakeModule
