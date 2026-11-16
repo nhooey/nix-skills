@@ -13,8 +13,8 @@ Usage:
 Reads the working-dir flake.lock via list-filtered-inputs.sh, then for each
 (key, owner, repo, rev, ref) row compares the locked rev to the head of <ref>
 on <owner>/<repo> via `gh api`. Uses the input's own `.locked.owner` by
-default; if $OWNER is set in env, it overrides every input's owner (legacy
-behaviour, useful only when the predicate selects forks under one account).
+default; if $OWNER is set in env, it overrides every input's owner (useful
+only when the predicate selects forks under one account).
 
 Emits TSV to stdout: <key>\t<owner>\t<repo>\t<rev>\t<head>\t<ref>
   • For behind inputs, <head> is the upstream rev.

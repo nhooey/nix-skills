@@ -1,17 +1,17 @@
 ---
 name: nix-java
-description: JVM-specific patterns in Nix flakes. Covers the `nix-jdk` workspace symlink for IDE stability across JDK store-path churn, `clojure.override { jdk = ... }` / `gradle.override` / `maven.override` / `sbt.override` for explicit JDK pinning on JVM tools, and `pkgs.lib.lowPrio` for resolving PATH conflicts between competing JDK-wrapper packages. Use when packaging anything JVM-based with Nix (Java, Kotlin, Scala, Clojure), debugging IDE breakage after a nixpkgs bump, or untangling clashing wrapper binaries on PATH. Pair with the `nix-flakes` skill for generic toolchain-pinning structure.
+description: Pin the JDK for JVM projects packaged with Nix (Java, Kotlin, Scala, Clojure). Covers a `nix-jdk` symlink in the workspace that keeps IDEs working when the JDK's store path changes, the argument each JVM tool's `override` takes for its JDK (`jdk` on clojure, `java` on gradle, `jdk_headless` on maven, `jre` on sbt), and `lib.lowPrio` for two packages that put the same binary on `PATH`. Use when packaging anything JVM-based with Nix, when an IDE loses its JDK after a nixpkgs bump, or when JDK wrapper binaries clash on `PATH`.
 ---
 
 # Nix + JVM / Java
 
-JVM-specific patterns. The general toolchain-pinning advice in the `nix-flakes` skill applies — define one source-of-truth JDK and thread it everywhere. The patterns below are the JVM-specific bits.
+The toolchain-pinning rule in `nix-flakes` applies: define one JDK and thread it through every consumer. This skill adds the JVM-specific parts.
 
 ## IDE-friendly JDK symlink
 
-JDKs in the Nix store have hash-based paths that change on every nixpkgs update. IDEs (IntelliJ, Cursor, VS Code, Eclipse) cache "the project JDK" by absolute path — when the path changes, they break and the developer has to reconfigure.
+A JDK's Nix store path changes on every nixpkgs update. IDEs (IntelliJ, Cursor, VS Code, Eclipse) store the project JDK by absolute path, so each update breaks them until the developer reconfigures.
 
-Fix: symlink the resolved JDK into the workspace at a stable path from a `devshell.startup` hook. Point the IDE at the symlink, not the store path. Bumping the JDK pin updates the symlink in place; the IDE keeps working.
+Symlink the resolved JDK into the workspace at a stable path from a `devshell.startup` hook, and point the IDE at the symlink. Bumping the JDK pin updates the symlink in place.
 
 ```nix
 devshell.startup.link-jdk.text = ''
@@ -19,24 +19,27 @@ devshell.startup.link-jdk.text = ''
 '';
 ```
 
-Add `nix-jdk` (or whatever you name it) to `.gitignore`.
+Add `nix-jdk` to `.gitignore`.
 
 ## Override the JDK on JVM-based tools
 
-Don't rely on the ambient JDK for tools that pin one internally. Override explicitly:
+Each tool picks its own default JDK. Override it explicitly; the argument name differs per tool:
 
 ```nix
 clojure.override { jdk = pinnedJdk; }
-gradle.override  { jdk = pinnedJdk; }
-maven.override   { jdk = pinnedJdk; }
-sbt.override     { jre = pinnedJdk; }   # note: jre, not jdk, on sbt
+gradle.override  { java = pinnedJdk; }
+maven.override   { jdk_headless = pinnedJdk; }
+sbt.override     { jre = pinnedJdk; }
 ```
 
-Combined with the source-of-truth pattern from the `nix-flakes` skill, one constant retargets every consumer (build, test, REPL, IDE).
+- **gradle:** the wrapper passes every argument on to `gradle-unwrapped` and ignores any it doesn't know, so `gradle.override { jdk = … }` builds the default JDK without an error. Use `java`.
+- **maven:** `maven.override { jdk = … }` fails to evaluate; the argument is `jdk_headless`.
+
+With the single toolchain constant from `nix-flakes`, one edit retargets the build, tests, REPL and IDE.
 
 ## `lowPrio` for clashing wrappers
 
-A tool wrapped with one JDK plus another package that re-exports the same binary with the ambient JDK can shadow each other on `PATH`. Demote one with `pkgs.lib.lowPrio` instead of removing it:
+A tool wrapped with the pinned JDK and another package that re-exports the same binary can shadow each other on `PATH`. Demote one with `lib.lowPrio` instead of removing it:
 
 ```nix
 packages = [
@@ -45,8 +48,27 @@ packages = [
 ];
 ```
 
-Both stay installed; the high-priority one wins on `PATH`.
+Both stay installed, and the other one wins on `PATH`.
 
 ## References
 
-- [Nixpkgs JVM module / Java](https://nixos.org/manual/nixpkgs/stable/#java) — official packaging notes, including the `override` arguments accepted by `clojure`, `gradle`, `maven`, `sbt`, etc.
+- [Nixpkgs manual: Java](https://nixos.org/manual/nixpkgs/stable/#sec-language-java): JDK and JRE packages, and overriding the JRE a package uses.
+
+## Your preferences
+
+!`cat "${CLAUDE_SKILL_DIR}/../nix-java.preferences.md" "${CLAUDE_PROJECT_DIR}/.agents/skills/nix-java.preferences.md" 2>/dev/null || true`
+
+If your agent doesn't run the line above, read these files yourself if they
+exist: `nix-java.preferences.md` next to this skill's folder, then
+`.agents/skills/nix-java.preferences.md` in the project. A project's
+file overrides the user's, and the user's overrides this skill's defaults.
+
+## Related skills
+
+When one of these applies and it's in your skill listing, load it
+without asking. If it isn't in your listing, tell the user which skill is
+missing and ask whether to install it from the same collection this skill
+came from; don't apply it from memory.
+
+- `nix-flakes`: flake conventions this skill builds on, single-source toolchain pinning among them.
+- `nix-clojure`: Clojure and ClojureScript packaging with clj-nix, which takes the pinned JDK through `clojure.override`.

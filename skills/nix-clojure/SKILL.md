@@ -1,58 +1,75 @@
 ---
 name: nix-clojure
-description: Clojure / ClojureScript packaging in Nix flakes via clj-nix. Covers `mkCljApp` / `mkCljsApp`, `deps-lock.json` discipline, deterministic `node_modules` for shadow-cljs, override-comment hygiene, wiring `cljfmt` + `clj-kondo` + tests as flake checks, JDK pinning via `clojure.override`, and dev-shell tool inventory. Use when packaging a Clojure project with Nix, debugging clj-nix builds, or adding ClojureScript / shadow-cljs to a flake. Pair with the `nix-flakes` skill for generic flake structure.
+description: Package Clojure and ClojureScript projects in Nix flakes with clj-nix. Covers `mkCljApp` and `mkCljsApp` with their defaults written out, committing `deps-lock.json` beside `flake.lock`, a JDK pinned through `clojure.override`, a deterministic `node_modules` for shadow-cljs, a comment on every overridden `buildCommand`, `cljfmt`, `clj-kondo` and tests wired as flake checks, and the tools the dev shell ships. Use when packaging a Clojure project with Nix, debugging a clj-nix build, or adding ClojureScript or shadow-cljs to a flake.
 ---
 
 # Nix + Clojure / ClojureScript
 
-Specific to Clojure and ClojureScript projects packaged with [`clj-nix`](https://github.com/jlesquembre/clj-nix). For the generic flake conventions this skill builds on (input pinning, `flake-parts`, devshell discipline, `treefmt`, `git ls-files`, etc.), see the companion `nix-flakes` skill.
+For Clojure and ClojureScript projects packaged with [`clj-nix`](https://github.com/jlesquembre/clj-nix). The generic flake conventions this builds on (input pinning, `flake-parts`, dev shell commands, `treefmt`, `git ls-files`) are in `nix-flakes`.
 
 ## Packaging
 
-- Use `clj-nix.lib.mkCljApp` (JVM) or `mkCljsApp` (ClojureScript) with `projectSrc = ./.`. Declarative Clojure-to-Nix packaging without a custom derivation.
-- Set defaults explicitly (`nativeImage.enable = false`, `customJdk.enable = false`, `buildId`, `buildTarget`) so intent is visible in the file rather than implicit. A future reader shouldn't have to consult the clj-nix README to understand what your build *is*.
-- Override `clojure` with the project's pinned JDK rather than relying on the ambient one — guarantees the same JDK at build time, test time, REPL, and IDE:
+- Use `clj-nix.lib.mkCljApp` (JVM) or `mkCljsApp` (ClojureScript) with `projectSrc = ./.`, rather than a hand-written derivation.
+- Write the defaults out (`nativeImage.enable = false`, `customJdk.enable = false`, `buildId`, `buildTarget`), so the file says what the build is without a trip to the clj-nix README.
+- Override `clojure` with the project's pinned JDK, so build, tests, REPL and IDE all run the same one:
 
   ```nix
   clojure.override { jdk = pinnedJdk; }
   ```
 
-  Combine with the source-of-truth toolchain-pinning pattern from the `nix-flakes` skill so one constant retargets every consumer.
+  Take `pinnedJdk` from the single toolchain constant in `nix-flakes`; the JDK overrides for other JVM tools are in `nix-java`.
 
 ## Lockfiles
 
-- `deps-lock.json` (clj-nix's companion lockfile for Maven deps) is committed alongside `flake.lock`. Without both, dependency resolution isn't fully reproducible.
-- Promote `update-deps` (regenerate `deps-lock.json`) and `update-flake` (`nix flake update`) to first-class dev-shell commands. Don't make new contributors guess.
+- Commit `deps-lock.json`, clj-nix's lockfile for Maven dependencies, alongside `flake.lock`. Dependency resolution is reproducible only with both.
+- Make `update-deps` (regenerate `deps-lock.json`) and `update-flake` (`nix flake update`) dev shell commands.
 
 ## ClojureScript / shadow-cljs
 
-- Build `node_modules` deterministically with `pkgs.importNpmLock.buildNodeModules { npmRoot = ./.; }` and symlink it in `preBuild`. No network at build time, fully captured by `package-lock.json`.
-- When overriding `mkCljsApp`'s `buildCommand`, leave a comment explaining *why* the default was insufficient (e.g. "the default `clj-builder cljs-compile` runs shadow-cljs directly and wouldn't see the `:shadow-cljs` alias's deps"). Future readers shouldn't have to reverse-engineer the override.
-- Guard the `node_modules` relink in dev commands: only `rm` it if it currently points into the Nix store (`readlink -f` starts with `${builtins.storeDir}`). Don't blow away a developer's local `npm install`.
+- Build `node_modules` from `package-lock.json` with `pkgs.importNpmLock.buildNodeModules { npmRoot = ./.; inherit nodejs; }` (`nodejs` is a required argument) and symlink it in `preBuild`. The build needs no network.
+- When overriding `mkCljsApp`'s `buildCommand`, comment why the default wasn't enough, for example: "the default `clj-builder cljs-compile` runs shadow-cljs directly and wouldn't see the `:shadow-cljs` alias's deps".
+- In a dev command that relinks `node_modules`, `rm` it only if it points into the Nix store (`readlink -f` starts with `${builtins.storeDir}`), so a developer's own `npm install` survives.
 
 ## Lint, format, test as flake checks
 
-Wire the standard Clojure tooling as `checks.${system}` so `nix flake check` is your CI entry point — runs the same way locally and in CI:
+Wire the Clojure tooling as `checks.${system}`, so `nix flake check` runs the same way locally and in CI:
 
-- `cljfmt check` — formatting verification
-- `clj-kondo` — linting
-- the project's test runner (`clojure -M:test`, `bb test`, etc.)
+- `cljfmt check`: formatting.
+- `clj-kondo`: linting.
+- The project's test runner (`clojure -M:test`, `bb test`, and so on).
 
-For repo-wide formatting that mixes Clojure with other languages, prefer `treefmt` (see the `nix-flakes` skill) — it can drive `cljfmt` alongside `nixfmt`, `shfmt`, and others under one `nix fmt` command.
+For a repo that mixes Clojure with other languages, drive `cljfmt` from `treefmt` alongside `nixfmt` and `shfmt`, as `nix-flakes` describes.
 
 ## Dev shell contents
 
-Ship every tool a contributor needs:
+Ship every tool a contributor needs, so the README has no "install this globally" step:
 
-- `clj-kondo`, `cljfmt` — lint and format
-- `clojure` (overridden with the pinned JDK)
-- `nodejs`, `npm` — for ClojureScript projects
-- `git`, `tree`, `jq` — generic ergonomics
-
-No "install this globally" instructions in the README.
+- `clj-kondo`, `cljfmt`: lint and format.
+- `clojure`, overridden with the pinned JDK.
+- `nodejs` and `npm`, for ClojureScript projects.
+- `git`, `tree`, `jq`.
 
 ## References
 
-- [`clj-nix`](https://github.com/jlesquembre/clj-nix) — upstream docs, including `mkCljApp` / `mkCljsApp` reference
-- [`cljfmt`](https://github.com/weavejester/cljfmt) and [`clj-kondo`](https://github.com/clj-kondo/clj-kondo)
-- [shadow-cljs](https://github.com/thheller/shadow-cljs)
+- [`clj-nix`](https://github.com/jlesquembre/clj-nix): upstream docs, including the `mkCljApp` and `mkCljsApp` reference.
+- [`cljfmt`](https://github.com/weavejester/cljfmt) and [`clj-kondo`](https://github.com/clj-kondo/clj-kondo).
+- [shadow-cljs](https://github.com/thheller/shadow-cljs).
+
+## Your preferences
+
+!`cat "${CLAUDE_SKILL_DIR}/../nix-clojure.preferences.md" "${CLAUDE_PROJECT_DIR}/.agents/skills/nix-clojure.preferences.md" 2>/dev/null || true`
+
+If your agent doesn't run the line above, read these files yourself if they
+exist: `nix-clojure.preferences.md` next to this skill's folder, then
+`.agents/skills/nix-clojure.preferences.md` in the project. A project's
+file overrides the user's, and the user's overrides this skill's defaults.
+
+## Related skills
+
+When one of these applies and it's in your skill listing, load it
+without asking. If it isn't in your listing, tell the user which skill is
+missing and ask whether to install it from the same collection this skill
+came from; don't apply it from memory.
+
+- `nix-flakes`: flake conventions this skill builds on: input pinning, `flake-parts`, toolchain pinning, dev shell commands, `treefmt`.
+- `nix-java`: JDK pinning across JVM tools, the IDE-stable `nix-jdk` symlink and `lowPrio` for clashing wrappers.
