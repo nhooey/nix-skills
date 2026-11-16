@@ -1,0 +1,253 @@
+#!/usr/bin/env bash
+# nix-skills: the commands for working on this repository, one tool with a
+# command token per job. Run `nix-skills --help` for the list.
+set -euo pipefail
+
+PROG=nix-skills
+
+usage() {
+  cat <<EOF
+$PROG — work on the nix-skills repository.
+
+Usage:
+  $PROG <command> [options]
+
+Commands:
+  test [BATS_ARGS...]             Run the bats suite under tests/ directly,
+                                  without building every skill.
+  new-skill NAME DESCRIPTION      Scaffold skills/NAME/ (SKILL.md, flake.nix)
+                                  and add its row to the README's skill table.
+  update-skill-locks [NAME...]    Run \`nix flake update\` in each skill's own
+                                  flake (every tracked skills/*/flake.nix by
+                                  default).
+
+Options:
+  -h, --help                      Show this help, or a command's help after it.
+
+The repository root is \$PRJ_ROOT when set, else the enclosing git work tree.
+
+Exit status: 0 on success, 1 when the command failed, 2 on a usage error.
+EOF
+}
+
+usage_test() {
+  cat <<EOF
+$PROG test — run the bats suite under tests/.
+
+Usage:
+  $PROG test [BATS_ARGS...]
+
+Runs \`bats tests\` from the repository root; any arguments go to bats as they
+are, for example \`--filter detect\` or a single .bats file. \`nix flake check\`
+runs the same suite in the build sandbox.
+EOF
+}
+
+usage_new_skill() {
+  cat <<EOF
+$PROG new-skill — scaffold a skill.
+
+Usage:
+  $PROG new-skill NAME DESCRIPTION
+
+Writes skills/NAME/SKILL.md with NAME and DESCRIPTION in its frontmatter,
+skills/NAME/flake.nix so the skill installs on its own, and a row for it in
+the README's "Skills in this repo" table. NAME is lowercase words joined by
+hyphens. Refuses when skills/NAME already exists.
+
+Lock the new flake afterwards with \`$PROG update-skill-locks NAME\`.
+EOF
+}
+
+usage_update_skill_locks() {
+  cat <<EOF
+$PROG update-skill-locks — update the per-skill flakes' locks.
+
+Usage:
+  $PROG update-skill-locks [NAME...]
+
+Runs \`nix flake update\` in skills/NAME/ for each NAME, or in every skill
+directory with a tracked flake.nix when no NAME is given. The top-level flake
+is \`update-flake\`'s, and skills-devshell/ is \`update-skills-devshell\`'s.
+EOF
+}
+
+die() {
+  echo "$PROG: $*" >&2
+  exit 1
+}
+
+usage_error() {
+  echo "$PROG: $*" >&2
+  echo "Run '$PROG --help' for usage." >&2
+  exit 2
+}
+
+repo_root() {
+  if [[ -n ${PRJ_ROOT-} ]]; then
+    printf '%s\n' "$PRJ_ROOT"
+  else
+    git rev-parse --show-toplevel 2>/dev/null ||
+      die "not in a git work tree and PRJ_ROOT is unset"
+  fi
+}
+
+# True when $1 is a valid skill name: lowercase words joined by single hyphens.
+valid_skill_name() {
+  [[ $1 =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]
+}
+
+# Print the SKILL.md for skill $1 with description $2.
+render_skill_md() {
+  cat <<EOF
+---
+name: $1
+description: $2
+---
+
+# $1
+
+TODO: the skill's instructions.
+EOF
+}
+
+# Print the per-skill flake.nix for skill $1.
+render_skill_flake() {
+  cat <<EOF
+{
+  description = "$1: Claude Code skill";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    agent-skill-flake = {
+      url = "github:nhooey/agent-skill-flake";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs =
+    { nixpkgs, agent-skill-flake, ... }@inputs:
+    agent-skill-flake.lib.mkSkillFlake {
+      inherit nixpkgs;
+      source = import ../../source.nix;
+      skillName = "$1";
+      src = ./.;
+    };
+}
+EOF
+}
+
+# Read a README on stdin and print it with a row for skill $1 (description $2)
+# after the last row of the table under "## Skills in this repo". Exits 1,
+# printing nothing, when that table isn't there.
+add_readme_row() {
+  awk -v name="$1" -v desc="$2" '
+    function flush() { out = out $0 "\n" }
+    /^## Skills in this repo/ { in_section = 1 }
+    in_section && /^\|/ { in_table = 1; flush(); next }
+    in_table && !/^\|/ {
+      out = out "| " name " | " desc " | [skills/" name "](skills/" name ") |\n"
+      in_table = 0; in_section = 0; done = 1
+    }
+    { flush() }
+    END {
+      if (in_table) {
+        out = out "| " name " | " desc " | [skills/" name "](skills/" name ") |\n"
+        done = 1
+      }
+      if (!done) exit 1
+      printf "%s", out
+    }
+  '
+}
+
+cmd_test() {
+  case "${1-}" in -h | --help)
+    usage_test
+    return 0
+    ;;
+  esac
+  local root
+  root="$(repo_root)"
+  cd "$root"
+  if (($# == 0)); then
+    set -- tests
+  fi
+  bats "$@"
+}
+
+cmd_new_skill() {
+  case "${1-}" in -h | --help)
+    usage_new_skill
+    return 0
+    ;;
+  esac
+  (($# == 2)) || usage_error "new-skill takes NAME and DESCRIPTION"
+  local name="$1" desc="$2" root dir readme tmp
+  valid_skill_name "$name" ||
+    usage_error "skill name '$name' must be lowercase words joined by hyphens"
+  [[ -n $desc && $desc != *$'\n'* ]] ||
+    usage_error "DESCRIPTION must be one non-empty line"
+  root="$(repo_root)"
+  dir="$root/skills/$name"
+  [[ ! -e $dir ]] || die "skills/$name already exists"
+
+  readme="$root/README.md"
+  tmp="$(mktemp)"
+  add_readme_row "$name" "$desc" <"$readme" >"$tmp" || {
+    rm -f "$tmp"
+    die "no table under '## Skills in this repo' in README.md"
+  }
+
+  mkdir -p "$dir"
+  render_skill_md "$name" "$desc" >"$dir/SKILL.md"
+  render_skill_flake "$name" >"$dir/flake.nix"
+  cat "$tmp" >"$readme"
+  rm -f "$tmp"
+
+  echo "Created skills/$name/SKILL.md and skills/$name/flake.nix; added its README row."
+  echo "Next: write the skill, then run '$PROG update-skill-locks $name'."
+}
+
+cmd_update_skill_locks() {
+  case "${1-}" in -h | --help)
+    usage_update_skill_locks
+    return 0
+    ;;
+  esac
+  local root name
+  local -a names=()
+  root="$(repo_root)"
+  if (($# > 0)); then
+    for name in "$@"; do
+      valid_skill_name "$name" || usage_error "invalid skill name '$name'"
+      [[ -f $root/skills/$name/flake.nix ]] ||
+        die "skills/$name/flake.nix does not exist"
+      names+=("$name")
+    done
+  else
+    while IFS= read -r name; do
+      names+=("$(basename "$(dirname "$name")")")
+    done < <(git -C "$root" ls-files 'skills/*/flake.nix')
+    ((${#names[@]} > 0)) || die "no tracked skills/*/flake.nix"
+  fi
+  for name in "${names[@]}"; do
+    echo "==> skills/$name"
+    (cd "$root/skills/$name" && nix flake update)
+  done
+}
+
+main() {
+  (($# > 0)) || usage_error "missing command"
+  local cmd="$1"
+  shift
+  case "$cmd" in
+  -h | --help | help) usage ;;
+  test) cmd_test "$@" ;;
+  new-skill) cmd_new_skill "$@" ;;
+  update-skill-locks) cmd_update_skill_locks "$@" ;;
+  *) usage_error "unknown command '$cmd'" ;;
+  esac
+}
+
+main "$@"

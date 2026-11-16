@@ -68,6 +68,25 @@
 
       perSystem =
         { pkgs, system, ... }:
+        let
+          batsWithLibraries = pkgs.bats.withLibraries (p: [
+            p.bats-support
+            p.bats-assert
+          ]);
+
+          # The repository's own commands (test, new-skill,
+          # update-skill-locks), one tool on the dev shell's PATH.
+          nix-skills-tool = pkgs.writeShellApplication {
+            name = "nix-skills";
+            runtimeInputs = [
+              batsWithLibraries
+              pkgs.gawk
+              pkgs.git
+              pkgs.jq
+            ];
+            text = builtins.readFile ./bin/nix-skills;
+          };
+        in
         {
           packages = base.packages.${system};
 
@@ -79,15 +98,13 @@
                 src = pkgs.lib.fileset.toSource {
                   root = ./.;
                   fileset = pkgs.lib.fileset.unions [
+                    ./bin
                     ./skills
                     ./tests
                   ];
                 };
                 nativeBuildInputs = [
-                  (pkgs.bats.withLibraries (p: [
-                    p.bats-support
-                    p.bats-assert
-                  ]))
+                  batsWithLibraries
                   pkgs.gawk
                   pkgs.git
                   pkgs.jq
@@ -101,11 +118,21 @@
                 touch "$out"
               '';
 
+          # Builds the tool, which runs shellcheck over bin/nix-skills.
+          checks.nix-skills-tool = nix-skills-tool;
+
           apps = base.apps.${system};
 
-          # The devShell (motd, install-skills startup reconciling the
-          # `skills-devshell/` sub-flake, and the standard + skills command
-          # lists) comes entirely from the imported devshellSkills module.
+          # The devShell's motd, install-skills startup and standard + skills
+          # commands come from the imported devshellSkills module; this list
+          # concatenates onto its menu.
+          devshells.default.commands = [
+            {
+              category = "dev";
+              package = nix-skills-tool;
+              help = "Run the bats suite, scaffold a skill, or update the per-skill flake locks";
+            }
+          ];
 
           treefmt = {
             projectRootFile = "flake.nix";
