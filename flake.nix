@@ -83,6 +83,7 @@
               pkgs.gawk
               pkgs.git
               pkgs.jq
+              pkgs.yq-go
             ];
             text = builtins.readFile ./bin/nix-skills;
           };
@@ -108,6 +109,7 @@
                   pkgs.gawk
                   pkgs.git
                   pkgs.jq
+                  pkgs.yq-go
                 ];
               }
               ''

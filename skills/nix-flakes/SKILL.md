@@ -1,6 +1,6 @@
 ---
 name: nix-flakes
-description: Write and audit `flake.nix` files to one set of language-agnostic conventions, and scaffold a flake where a repo has none. Covers pinning inputs in `flake.lock` rather than in URLs, `follows`, input order (`nixpkgs`, `flake-parts`, `systems`, then alphabetical) and the `@inputs` head, `inherit` over `with`, `flake-parts` with the `nix-systems/default` flake, one constant per pinned toolchain, choosing a `*2nix` library per language (asking the user first), numtide devshell commands, `treefmt`, checks in `nix flake check`, `git ls-files` over `find`, file contents kept out of Nix, `stdenv.hostPlatform.isDarwin` over the deprecated `stdenv.isDarwin`, and two Nix pitfalls: relative `path:` sub-flake inputs and `path:` flakerefs under a symlinked directory such as macOS `/tmp`. Bundled scripts inventory a repo's flakes, detect its languages and check whether Nix still rejects symlinked `path:` flakerefs. Use when authoring a new `flake.nix`, reviewing one for drift from these conventions, picking a language-packaging library, or debugging an evaluation or build problem that looks structural.
+description: "Write and audit `flake.nix` files to one set of language-agnostic conventions, and scaffold a flake where a repo has none. Covers pinning inputs in `flake.lock` rather than in URLs, `follows`, input order (`nixpkgs`, `flake-parts`, `systems`, then alphabetical) and the `@inputs` head, `inherit` over `with`, `flake-parts` with the `nix-systems/default` flake, one constant per pinned toolchain, choosing a `*2nix` library per language (asking the user first), numtide devshell commands, `treefmt`, checks in `nix flake check`, `git ls-files` over `find`, file contents kept out of Nix, `stdenv.hostPlatform.isDarwin` over the deprecated `stdenv.isDarwin`, and two Nix pitfalls: relative `path:` sub-flake inputs and `path:` flakerefs under a symlinked directory such as macOS `/tmp`. Bundled scripts inventory a repo's flakes, detect its languages and check whether Nix still rejects symlinked `path:` flakerefs. Use when authoring a new `flake.nix`, reviewing one for drift from these conventions, picking a language-packaging library, or debugging an evaluation or build problem that looks structural."
 ---
 
 # Nix flake conventions
@@ -324,17 +324,13 @@ Resources for cross-checking this skill; where one conflicts with it, the upstre
 
 !`cat "${CLAUDE_SKILL_DIR}/../nix-flakes.preferences.md" "${CLAUDE_PROJECT_DIR}/.agents/skills/nix-flakes.preferences.md" 2>/dev/null || true`
 
-If your agent doesn't run the line above, read these files yourself if they
-exist: `nix-flakes.preferences.md` next to this skill's folder, then
-`.agents/skills/nix-flakes.preferences.md` in the project. A project's
-file overrides the user's, and the user's overrides this skill's defaults.
+If your agent doesn't run the line above, read these files yourself if they exist: `nix-flakes.preferences.md` next to this skill's folder, then `.agents/skills/nix-flakes.preferences.md` in the project.
+A project's file overrides the user's, and the user's overrides this skill's defaults.
 
 ## Related skills
 
-When one of these applies and it's in your skill listing, load it
-without asking. If it isn't in your listing, tell the user which skill is
-missing and ask whether to install it from the same collection this skill
-came from; don't apply it from memory.
+When one of these applies and it's in your skill listing, load it without asking.
+If it isn't in your listing, tell the user which skill is missing and ask whether to install it from the same collection this skill came from; don't apply it from memory.
 
 - `nix-java`: JVM specifics: the JDK override argument per tool, the IDE-stable `nix-jdk` symlink and `lowPrio` for clashing wrappers.
 - `nix-clojure`: Clojure and ClojureScript packaging with clj-nix.
