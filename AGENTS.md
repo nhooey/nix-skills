@@ -4,7 +4,7 @@ Agent skills about Nix (`nix-flakes`, `nix-flake-recursive-bump-input-versions`,
 
 ## Build and test
 
-- `nix develop`: the dev shell, with the project's skills installed into `.agents/skills/` from the `skills-devshell/` sub-flake.
+- `nix develop`: the dev shell, with the project's skills installed into `.agents/skills/` from the `skills-devshell/` sub-flake: skillspkgs' `skill-collections` combination, with no additions.
 - `nix flake check`: evaluates every skill package, runs the bats suite under `tests/` and fails on any file `nix fmt` would change.
 - `nix-skills test`: runs the bats suite directly, quicker than `nix flake check` while iterating; extra arguments go to bats.
 - `nix-skills new-skill NAME DESCRIPTION`: scaffolds `skills/NAME/` (`SKILL.md`, `flake.nix`) and its README row.
