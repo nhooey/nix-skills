@@ -33,6 +33,22 @@ dead:
 OUT
 }
 
+@test "classify walks a follows path from root through each node's inputs" {
+  # bar's nixpkgs follows foo/nixpkgs, which is the node nixpkgs_2, not the
+  # node named by the path's last element; baz's follows bar/nixpkgs, which
+  # is itself a follows edge.
+  export NIX_METADATA_JSON="$TESTS_DIR/fixtures/flake-metadata-follows-path.json"
+  run "$BUMP_SCRIPTS/classify-direct-vs-transitive.sh"
+  assert_success
+  assert_output - <<'OUT'
+nixpkgs: root
+nixpkgs_2: foo, bar, baz
+foo: root
+bar: root
+baz: root
+OUT
+}
+
 # --- list-filtered-inputs.sh -------------------------------------------------
 
 @test "list-filtered-inputs defaults to inputs owned by the gh login" {
