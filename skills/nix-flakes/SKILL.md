@@ -283,7 +283,7 @@ The table lists the most reliable, maintained and widely used option per ecosyst
 ### Decision shortcuts
 
 - **A first-party builder in nixpkgs meets your needs:** use it. No extra input, it follows nixpkgs' release cadence, and it is less likely to rot than a third-party flake.
-- **You need per-crate caching, several cross-cutting outputs, or hermetic CI builds:** reach for `crane`, `haskell.nix`, `clj-nix` or similar specialised tools; they pay off once the build matrix is non-trivial.
+- **You need granular caching, several cross-cutting outputs, or hermetic CI builds:** reach for `crane`, `haskell.nix`, `clj-nix` or similar specialised tools; they pay off once the build matrix is non-trivial.
 - **The project already uses a tool:** keep it, unless the user has put it up for review.
 - **The language has no good story** (Swift, R packages outside CRAN, niche DSLs): say so, and propose a fixed-output derivation that vendors the dependencies, or `dream2nix`. Don't invent a recommendation.
 
