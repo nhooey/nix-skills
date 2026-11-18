@@ -1,6 +1,6 @@
 ---
 name: nix-flakes
-description: "Write and audit `flake.nix` files to one set of language-agnostic conventions, and scaffold a flake where a repo has none. Covers pinning inputs in `flake.lock` rather than in URLs, `follows`, input order (`nixpkgs`, `flake-parts`, `systems`, then alphabetical) and the `@inputs` head, `inherit` over `with`, `flake-parts` with the `nix-systems/default` flake, one constant per pinned toolchain, numtide devshell commands, `treefmt`, checks in `nix flake check`, `git ls-files` over `find`, file contents kept out of Nix, `stdenv.hostPlatform.isDarwin` over the deprecated `stdenv.isDarwin`, and two Nix pitfalls: relative `path:` sub-flake inputs and `path:` flakerefs under a symlinked directory such as macOS `/tmp`. Bundled scripts inventory a repo's flakes, detect its languages and check whether Nix still rejects symlinked `path:` flakerefs. Use when authoring a new `flake.nix`, reviewing one for drift from these conventions, or debugging an evaluation or build problem that looks structural."
+description: "Load when writing, scaffolding or reviewing a `flake.nix`, or debugging a flake evaluation or build problem that looks structural. One set of language-agnostic conventions, with scripts that inventory a repository's flakes and detect its languages. Choosing a `*2nix` library belongs to `nix-language-packaging`."
 ---
 
 # Nix flake conventions
