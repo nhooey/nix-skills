@@ -1,6 +1,6 @@
 # nix-skills
 
-Agent skills about Nix (`nix-flakes`, `nix-flake-recursive-bump-input-versions`, `nix-clojure`, `nix-java`), one directory each under `skills/`, published as a Nix flake and a Claude Code plugin marketplace (`.claude-plugin/marketplace.json`). Each skill directory is also a flake of its own.
+Agent skills about Nix (`nix-flakes`, `nix-flake-recursive-bump-input-versions`, `nix-clojure`, `nix-java`, `nix-language-packaging`), one directory each under `skills/`, published as a Nix flake and a Claude Code plugin marketplace (`.claude-plugin/marketplace.json`). Each skill directory is also a flake of its own.
 
 ## Build and test
 
