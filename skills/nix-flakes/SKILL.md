@@ -1,6 +1,6 @@
 ---
 name: nix-flakes
-description: Write and audit `flake.nix` files to one set of language-agnostic conventions, and scaffold a flake where a repo has none. Covers pinning inputs in `flake.lock` rather than in URLs, `follows`, input order (`nixpkgs`, `flake-parts`, `systems`, then alphabetical) and the `@inputs` head, `inherit` over `with`, `flake-parts` with the `nix-systems/default` flake, one constant per pinned toolchain, choosing a `*2nix` library per language (asking the user first), numtide devshell commands, `treefmt`, checks in `nix flake check`, `git ls-files` over `find`, no file contents inlined in Nix, `stdenv.hostPlatform.isDarwin` over the deprecated `stdenv.isDarwin`, and two Nix pitfalls: relative `path:` sub-flake inputs and `path:` flakerefs under a symlinked directory such as macOS `/tmp`. Bundled scripts inventory a repo's flakes, detect its languages and check whether Nix still rejects symlinked `path:` flakerefs. Use when authoring a new `flake.nix`, reviewing one for drift from these conventions, picking a language-packaging library, or debugging an evaluation or build problem that looks structural.
+description: Write and audit `flake.nix` files to one set of language-agnostic conventions, and scaffold a flake where a repo has none. Covers pinning inputs in `flake.lock` rather than in URLs, `follows`, input order (`nixpkgs`, `flake-parts`, `systems`, then alphabetical) and the `@inputs` head, `inherit` over `with`, `flake-parts` with the `nix-systems/default` flake, one constant per pinned toolchain, choosing a `*2nix` library per language (asking the user first), numtide devshell commands, `treefmt`, checks in `nix flake check`, `git ls-files` over `find`, file contents kept out of Nix, `stdenv.hostPlatform.isDarwin` over the deprecated `stdenv.isDarwin`, and two Nix pitfalls: relative `path:` sub-flake inputs and `path:` flakerefs under a symlinked directory such as macOS `/tmp`. Bundled scripts inventory a repo's flakes, detect its languages and check whether Nix still rejects symlinked `path:` flakerefs. Use when authoring a new `flake.nix`, reviewing one for drift from these conventions, picking a language-packaging library, or debugging an evaluation or build problem that looks structural.
 ---
 
 # Nix flake conventions
@@ -95,92 +95,7 @@ Keep `with` for a tight scope of one or two attributes, such as `meta = with lib
 
 ## Never inline a file's contents in Nix
 
-A script, config or template goes in its own file, and Nix fills in its values. The rule covers every multi-line `''…''` body that is really another file:
-
-- the `text` of `pkgs.writeShellApplication`, `pkgs.writeText`, `pkgs.writeScript` and their `writeShellScript` and `writeScriptBin` siblings;
-- the build script of a `pkgs.runCommand`;
-- the `command` of a numtide devshell command, which takes `package = pkgs.writeShellApplication { … }` in its place;
-- home-manager's `home.file.<name>.text` and `xdg.configFile.<name>.text`.
-
-❌ The script pasted into the flake:
-
-```nix
-docSkills = pkgs.writeShellApplication {
-  name = "doc-skills";
-  runtimeInputs = [ pkgs.findutils ];
-  text = ''
-    usage="usage: doc-skills test [SKILL...]"
-    case "''${1:-}" in
-    ...
-  '';
-};
-```
-
-✅ The script in `scripts/doc-skills.sh`, read from disk:
-
-```nix
-docSkills = pkgs.writeShellApplication {
-  name = "doc-skills";
-  runtimeInputs = [ pkgs.findutils ];
-  text = builtins.readFile ./scripts/doc-skills.sh;
-};
-```
-
-`scripts/doc-skills.sh` says `case "${1:-}" in`, with no escaping.
-
-### Why
-
-- The file gets its language's own tooling, which picks files by extension: formatting (`shfmt`, anything in `treefmt`), linting (`shellcheck`), syntax highlighting, LSP diagnostics, and tests (`bats` runs the file as it is).
-- The `''${…}` escaping goes away, and so does `''` indentation stripping, which mangles heredocs, YAML and other text where leading whitespace matters.
-- The file has its own diff and `git blame`.
-
-### How Nix fills in the values
-
-Use the first of these that fits:
-
-1. **`builtins.readFile`**, when Nix passes the file through unchanged. The script calls its tools by name, and `runtimeInputs` puts them on `PATH`; `writeShellApplication`'s `runtimeEnv = { NAME = value; }` passes values as environment variables. A `runCommand` script gets them from its attrset: `pkgs.runCommand "x" { inherit src; nativeBuildInputs = [ … ]; } (builtins.readFile ./build.sh)`. A home-manager file takes the path itself: `home.file."foo.conf".source = ./foo.conf;`.
-2. **`pkgs.replaceVars ./foo.sh { … }`**, when Nix must write values into the file. The file holds `@placeholder@` tokens and keeps its own extension, so its formatter and linter still find it:
-
-   ```nix
-   # scripts/deploy.sh contains, verbatim:
-   #   kubectl --context=@cluster@ apply -f @manifestPath@
-   pkgs.replaceVars ./scripts/deploy.sh {
-     cluster = cfg.cluster;
-     manifestPath = "${manifest}/k8s.yaml";
-   }
-   ```
-
-   - The build fails on a replacement that matches nothing, and on any `@word@` left in the output, placeholder or not; `null` keeps a token as it is.
-   - The result is a store path. Use it where Nix wants a file (a `source`, a hook), not inside `builtins.readFile`, which would make evaluation build it.
-   - `pkgs.replaceVarsWith` makes an executable, named explicitly, since it otherwise takes the source file's name:
-
-     ```nix
-     pkgs.replaceVarsWith {
-       src = ./scripts/deploy.sh;
-       replacements = { inherit (cfg) cluster; };
-       name = "deploy";
-       dir = "bin";
-       isExecutable = true;
-       meta.mainProgram = "deploy";
-     }
-     ```
-3. **`pkgs.substitute { src = ./foo.conf; substitutions = [ "--replace-fail" "old" "new" ]; }`**, as a fallback for a file whose tokens aren't `@name@`, or that holds other `@word@` text, such as one copied from upstream.
-
-`pkgs.substituteAll` and `pkgs.substituteAllFiles` are aliases that throw; use `pkgs.replaceVars`. Before you write any of these, check what the flake's pinned nixpkgs offers, from the flake's directory:
-
-```sh
-nix eval --impure --expr 'let p = (builtins.getFlake (toString ./.)).inputs.nixpkgs.legacyPackages.${builtins.currentSystem}; in { replaceVars = p ? replaceVars; replaceVarsWith = p ? replaceVarsWith; substitute = p ? substitute; runtimeEnv = builtins.functionArgs p.writeShellApplication ? runtimeEnv; substituteAll = (builtins.tryEval p.substituteAll).success; }'
-```
-
-An alias that throws still answers `p ? name` with `true`, so test a removed builder with `builtins.tryEval`, as `substituteAll` is here.
-
-### Exception: a one-line command
-
-A one-line command stays inline: `command = "nix fmt";`, or `pkgs.runCommand "stamp" { } "touch $out"`. A second line, an escape, or a need for a linter moves it to a file.
-
-### Exception: Nix is the source of truth
-
-Don't externalise content Nix computes: an attrset rendered with `builtins.toJSON`, a config composed from typed module options, a unit file assembled from fragments. There the file is a build output, not an input; moving it to `scripts/` inverts the dependency and loses the types Nix enforces.
+Put a script, config or template in its own file. Read it with `builtins.readFile`, or fill in values with `pkgs.replaceVars ./file { … }` and `@name@` placeholders. A one-line command can stay inline.
 
 ## Structure
 
