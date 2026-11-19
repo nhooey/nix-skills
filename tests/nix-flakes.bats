@@ -1,10 +1,23 @@
 #!/usr/bin/env bats
-# The nix-flakes skill's scripts, each run in a scratch directory.
+# The nix-flakes skill's SKILL.md frontmatter, and its scripts, each run in
+# a scratch directory.
 
 load test_helper
 
 setup() {
   common_setup
+}
+
+# --- SKILL.md ----------------------------------------------------------------
+
+# The skill listing shows only the description, cut short when it
+# overflows, so the trigger leads and the whole stays short. yq-go reads it
+# as strict YAML, which a `: ` in a plain scalar fails.
+@test "the description parses as YAML, leads with when to load and stays short" {
+  run yq --front-matter=extract '.description' "$REPO_ROOT/skills/nix-flakes/SKILL.md"
+  assert_success
+  assert_output --regexp '^Load when '
+  assert [ "${#output}" -le 500 ]
 }
 
 # --- detect-project-language.sh ----------------------------------------------

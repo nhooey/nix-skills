@@ -1,6 +1,6 @@
 ---
 name: nix-flakes
-description: Write and audit `flake.nix` files to one set of language-agnostic conventions, and scaffold a flake where a repo has none. Covers pinning inputs in `flake.lock` rather than in URLs, `follows`, input order (`nixpkgs`, `flake-parts`, `systems`, then alphabetical) and the `@inputs` head, `inherit` over `with`, `flake-parts` with the `nix-systems/default` flake, one constant per pinned toolchain, choosing a `*2nix` library per language (asking the user first), numtide devshell commands, `treefmt`, checks in `nix flake check`, `git ls-files` over `find`, no file contents inlined in Nix, `stdenv.hostPlatform.isDarwin` over the deprecated `stdenv.isDarwin`, and two Nix pitfalls: relative `path:` sub-flake inputs and `path:` flakerefs under a symlinked directory such as macOS `/tmp`. Bundled scripts inventory a repo's flakes, detect its languages and check whether Nix still rejects symlinked `path:` flakerefs. Use when authoring a new `flake.nix`, reviewing one for drift from these conventions, picking a language-packaging library, or debugging an evaluation or build problem that looks structural.
+description: "Load when writing, scaffolding or reviewing a `flake.nix`, or debugging a flake evaluation or build problem that looks structural. One set of language-agnostic conventions, with scripts that inventory a repository's flakes and detect its languages. Choosing a `*2nix` library belongs to `nix-language-packaging`."
 ---
 
 # Nix flake conventions
@@ -29,7 +29,7 @@ Then:
 
   If the detector exits 1 (no language found), scaffold a minimal flake-parts skeleton with only devshell and treefmt. Then run `nix flake metadata` (or `nix flake show --all-systems --no-write-lock-file`) to confirm it evaluates, and report what you did.
 
-  **Ask which `*2nix` library to use before writing package outputs.** Once you know the language, and before writing any `packages.<system>` output that depends on the project's third-party dependencies, present the candidates from [Language packaging](#language-packaging-choosing-a-2nix-strategy) and let the user pick. The choice decides the lockfile shape, contributor friction, IDE behaviour and CI cost, and is painful to reverse. Skip the question only when the project already commits to one (`gemset.nix` means bundix, `nuget-deps.nix` means `buildDotnetModule`). The dev shell and formatter can land before the answer.
+  **Package outputs that depend on the project's third-party dependencies wait for the user's pick of a `*2nix` library, as `nix-language-packaging` says**; the dev shell and formatter can land before it.
 
 - **One or more flakes: ask which to update.** These rules are opinionated and the flakes are the user's, so don't rewrite any unasked. List every `flake.nix` found, numbered, and ask which to bring into line: all, none or a subset. Audit each chosen flake against this skill section by section, then edit it in place or summarise the changes you'd propose, whichever the user asked for. Leave the others alone.
 
@@ -51,7 +51,7 @@ Then:
 
   When inlining, watch for version skew the sub-flake's own lock hid. If an inlined source `follows` a shared library input that the root pins at a different revision, a check that passed in isolation can fail against the root's revision. Letting each inlined source follow only `nixpkgs`, not the shared library, keeps its compatible revision, while the combiner still runs from the root's library. A bare `path:` output and a same-repo build are fine; the hazard is a relative path used as a flake input that is consumed from outside the repo.
 
-- **Resolve symlinked directories before a `path:` flakeref or input.** Nix refuses a path when it or any parent directory is a symlink: `error: path '//tmp' is a symlink` (or `//var`, `//private/var/…/link`). Bare-path flakerefs (`nix build /tmp/x#a`) work, but `nix build path:/tmp/x#a`, a `path:` input and `builtins.getFlake "path:…"` still fail. It bites on macOS, where `/tmp` and `/var` (so `$TMPDIR`, `mktemp -d` and bats' `$BATS_FILE_TMPDIR`) are symlinks into `/private`: a test that copies a flake to a temporary directory and evaluates `path:$dir` passes on Linux and fails on macOS. Hand Nix the physical path:
+- **Resolve symlinked directories before a `path:` flakeref or input.** Since 2.20, Nix refuses a path when it or any parent directory is a symlink: `error: path '//tmp' is a symlink` (or `//var`, `//private/var/…/link`). Since 2.27, bare-path flakerefs (`nix build /tmp/x#a`) work, but `nix build path:/tmp/x#a`, a `path:` input and `builtins.getFlake "path:…"` still fail. It bites on macOS, where `/tmp` and `/var` (so `$TMPDIR`, `mktemp -d` and bats' `$BATS_FILE_TMPDIR`) are symlinks into `/private`: a test that copies a flake to a temporary directory and evaluates `path:$dir` passes on Linux and fails on macOS. Hand Nix the physical path:
 
   ```sh
   dir="$(cd "$BATS_FILE_TMPDIR" && pwd -P)/my-flake"   # or: realpath
@@ -95,92 +95,7 @@ Keep `with` for a tight scope of one or two attributes, such as `meta = with lib
 
 ## Never inline a file's contents in Nix
 
-A script, config or template goes in its own file, and Nix fills in its values. The rule covers every multi-line `''…''` body that is really another file:
-
-- the `text` of `pkgs.writeShellApplication`, `pkgs.writeText`, `pkgs.writeScript` and their `writeShellScript` and `writeScriptBin` siblings;
-- the build script of a `pkgs.runCommand`;
-- the `command` of a numtide devshell command, which takes `package = pkgs.writeShellApplication { … }` in its place;
-- home-manager's `home.file.<name>.text` and `xdg.configFile.<name>.text`.
-
-❌ The script pasted into the flake:
-
-```nix
-docSkills = pkgs.writeShellApplication {
-  name = "doc-skills";
-  runtimeInputs = [ pkgs.findutils ];
-  text = ''
-    usage="usage: doc-skills test [SKILL...]"
-    case "''${1:-}" in
-    ...
-  '';
-};
-```
-
-✅ The script in `scripts/doc-skills.sh`, read from disk:
-
-```nix
-docSkills = pkgs.writeShellApplication {
-  name = "doc-skills";
-  runtimeInputs = [ pkgs.findutils ];
-  text = builtins.readFile ./scripts/doc-skills.sh;
-};
-```
-
-`scripts/doc-skills.sh` says `case "${1:-}" in`, with no escaping.
-
-### Why
-
-- The file gets its language's own tooling, which picks files by extension: formatting (`shfmt`, anything in `treefmt`), linting (`shellcheck`), syntax highlighting, LSP diagnostics, and tests (`bats` runs the file as it is).
-- The `''${…}` escaping goes away, and so does `''` indentation stripping, which mangles heredocs, YAML and other text where leading whitespace matters.
-- The file has its own diff and `git blame`.
-
-### How Nix fills in the values
-
-Use the first of these that fits:
-
-1. **`builtins.readFile`**, when Nix passes the file through unchanged. The script calls its tools by name, and `runtimeInputs` puts them on `PATH`; `writeShellApplication`'s `runtimeEnv = { NAME = value; }` passes values as environment variables. A `runCommand` script gets them from its attrset: `pkgs.runCommand "x" { inherit src; nativeBuildInputs = [ … ]; } (builtins.readFile ./build.sh)`. A home-manager file takes the path itself: `home.file."foo.conf".source = ./foo.conf;`.
-2. **`pkgs.replaceVars ./foo.sh { … }`**, when Nix must write values into the file. The file holds `@placeholder@` tokens and keeps its own extension, so its formatter and linter still find it:
-
-   ```nix
-   # scripts/deploy.sh contains, verbatim:
-   #   kubectl --context=@cluster@ apply -f @manifestPath@
-   pkgs.replaceVars ./scripts/deploy.sh {
-     cluster = cfg.cluster;
-     manifestPath = "${manifest}/k8s.yaml";
-   }
-   ```
-
-   - The build fails on a replacement that matches nothing, and on any `@word@` left in the output, placeholder or not; `null` keeps a token as it is.
-   - The result is a store path. Use it where Nix wants a file (a `source`, a hook), not inside `builtins.readFile`, which would make evaluation build it.
-   - `pkgs.replaceVarsWith` makes an executable, named explicitly, since it otherwise takes the source file's name:
-
-     ```nix
-     pkgs.replaceVarsWith {
-       src = ./scripts/deploy.sh;
-       replacements = { inherit (cfg) cluster; };
-       name = "deploy";
-       dir = "bin";
-       isExecutable = true;
-       meta.mainProgram = "deploy";
-     }
-     ```
-3. **`pkgs.substitute { src = ./foo.conf; substitutions = [ "--replace-fail" "old" "new" ]; }`**, as a fallback for a file whose tokens aren't `@name@`, or that holds other `@word@` text, such as one copied from upstream.
-
-`pkgs.substituteAll` and `pkgs.substituteAllFiles` are aliases that throw; use `pkgs.replaceVars`. Before you write any of these, check what the flake's pinned nixpkgs offers, from the flake's directory:
-
-```sh
-nix eval --impure --expr 'let p = (builtins.getFlake (toString ./.)).inputs.nixpkgs.legacyPackages.${builtins.currentSystem}; in { replaceVars = p ? replaceVars; replaceVarsWith = p ? replaceVarsWith; substitute = p ? substitute; runtimeEnv = builtins.functionArgs p.writeShellApplication ? runtimeEnv; substituteAll = (builtins.tryEval p.substituteAll).success; }'
-```
-
-An alias that throws still answers `p ? name` with `true`, so test a removed builder with `builtins.tryEval`, as `substituteAll` is here.
-
-### Exception: a one-line command
-
-A one-line command stays inline: `command = "nix fmt";`, or `pkgs.runCommand "stamp" { } "touch $out"`. A second line, an escape, or a need for a linter moves it to a file.
-
-### Exception: Nix is the source of truth
-
-Don't externalise content Nix computes: an attrset rendered with `builtins.toJSON`, a config composed from typed module options, a unit file assembled from fragments. There the file is a build output, not an input; moving it to `scripts/` inverts the dependency and loses the types Nix enforces.
+Put a script, config or template in its own file. Read it with `builtins.readFile`, or fill in values with `pkgs.replaceVars ./file { … }` and `@name@` placeholders. A one-line command can stay inline.
 
 ## Structure
 
@@ -244,48 +159,6 @@ Two related patterns, with their JVM forms in `nix-java`:
 
 - **Clashing wrappers:** when two packages in the dev shell put the same binary on `PATH`, demote one with `lib.lowPrio` instead of removing it.
 - **A stable path for the IDE:** when an IDE caches the toolchain's store path, symlink the resolved toolchain into the workspace from a dev shell startup hook, and gitignore the link.
-
-## Language packaging: choosing a `*2nix` strategy
-
-A "`*2nix` library" here is whatever turns the project's language-native lockfile (`Cargo.lock`, `package-lock.json`, `pdm.lock`, `Gemfile.lock`, `composer.lock`, …) into a Nix derivation. The choice is per project and per language, and it decides the lockfile shape contributors work with, what regenerates when dependencies change, whether evaluation uses IFD (import from derivation), and how well CI caches builds. **Ask the user before picking one.**
-
-The table lists the most reliable, maintained and widely used option per ecosystem, with alternatives where the choice is contested. Verify it before relying on it (see below the table).
-
-| Ecosystem                                  | Recommendation                                                 | Why it's the default                                                                                                         | Notable alternatives                                                                                                  |
-| ------------------------------------------ | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Node: npm                                  | `pkgs.buildNpmPackage` (nixpkgs)                               | Lockfile-driven, no extra input, maintained in nixpkgs. Needs only an `npmDepsHash`.                                         | `dream2nix` (more powerful, more complex); `node2nix` (older, commits generated `.nix`); `npmlock2nix` (abandoned)    |
-| Node: pnpm                                 | `pkgs.fetchPnpmDeps` + `pkgs.pnpmConfigHook` (nixpkgs)         | First-party, models pnpm's content-addressed store, lockfile-driven. `pnpm.fetchDeps` is deprecated.                         | `pnpm2nix-nzbr` (separate flake; more flexible for unusual workspaces)                                                |
-| Node: yarn v1                              | `pkgs.yarnConfigHook` + `yarnBuildHook` (nixpkgs)              | Hook-based, lockfile-driven, same shape as the npm builder.                                                                  | — (`mkYarnPackage` is removed)                                                                                        |
-| Node: yarn Berry (v2+)                     | Per project                                                    | No widely accepted `*2nix`; `yarn install --immutable` in a fixed-output derivation is the usual workaround.                 | For a Berry monorepo, consider switching to pnpm, which has a better Nix story.                                       |
-| Python: Poetry                             | `poetry2nix` (`nix-community`)                                 | Mature, extensive overrides, works from `pyproject.toml` and `poetry.lock`.                                                  | `pyproject-nix` when moving to a PEP 621 layout                                                                       |
-| Python: uv, pip-tools, PDM, generic PEP 621 | `pyproject-nix` + `uv2nix` where applicable                   | Modular, aimed at projects past Poetry; `uv2nix` reads `uv.lock` directly.                                                   | `dream2nix` Python module (in flux); `mach-nix` is dead, don't recommend it                                           |
-| Python: manual or vendored                 | `pkgs.python3Packages.buildPythonPackage`                      | Stable, no extra input, fine for small projects with few dependencies.                                                       | —                                                                                                                     |
-| Rust: flake-native                         | `crane` (`ipetkov/crane`)                                      | Per-crate caching, composes well in flakes, widely used in production.                                                       | `naersk` (older, similar, less active); `crate2nix` (per-crate Nix files, more friction)                              |
-| Rust: simple binaries                      | `pkgs.rustPlatform.buildRustPackage` (nixpkgs)                 | Reads `Cargo.lock`, no extra input, right for one-binary repos.                                                              | `crane` once the project grows past one binary or wants better caching                                                |
-| Go                                         | `pkgs.buildGoModule` (nixpkgs)                                 | Reads `go.mod` and `go.sum`, hashes the vendor directory, well maintained.                                                   | `gomod2nix` for a committed lockfile and stricter reproducibility, at the cost of a regeneration step                 |
-| Haskell: production                        | `haskell.nix` (IOG)                                            | Powerful and fast; generates the Stackage or Cabal Nix itself.                                                               | Steep learning curve; reach for it only when `haskellPackages` runs out                                               |
-| Haskell: small or library                  | `haskellPackages.callCabal2nix` (nixpkgs)                      | First-party and simple, built on cabal2nix.                                                                                  | `stack2nix` (less maintained; avoid for new projects)                                                                 |
-| Ruby                                       | `bundix` + `pkgs.bundlerEnv`                                   | `bundix` generates `gemset.nix` from `Gemfile.lock`; `bundlerEnv` builds it.                                                 | —                                                                                                                     |
-| Java/Kotlin: Maven                         | `pkgs.maven.buildMavenPackage` (nixpkgs)                       | Lockfile-driven through `mvnHash`, first-party, no extra input.                                                              | `mvn2nix` (older flake approach; avoid for new projects)                                                              |
-| Java/Kotlin: Gradle                        | `gradle2nix` (`tadfisher/gradle2nix`)                          | The one widely used option that copes with Gradle's resolver; generates a Nix-side dependency lock.                          | Expect friction between Gradle and Nix; `nix-java` has the JDK side                                                   |
-| Scala: sbt                                 | `sbt-derivation` (`zaninime/sbt-derivation`)                   | `mkSbtDerivation` gives lockfile-style dependency resolution; the most active sbt option.                                    | Less polished than Go or Rust; check recent commits against your sbt version                                          |
-| Clojure                                    | `clj-nix` (`jlesquembre/clj-nix`)                              | Active, flake-native, `mkCljApp` and `mkCljsApp`, good shadow-cljs support. See `nix-clojure`.                               | —                                                                                                                     |
-| Elixir: mix                                | `mix2nix` (nixpkgs)                                            | Generates per-dependency Nix from `mix.lock`. First-party.                                                                   | `dream2nix` Erlang/Elixir module (less mature)                                                                        |
-| OCaml: opam                                | `opam-nix` (Tweag)                                             | Actively maintained, works with existing opam workflows.                                                                     | `opam2nix` (older, less maintained; verify before use)                                                                |
-| PHP: Composer                              | `pkgs.php.buildComposerProject2` (nixpkgs)                     | Lockfile-driven, first-party; the helper the nixpkgs manual documents.                                                       | `composer2nix` (older external tool, more friction)                                                                   |
-| C# / .NET                                  | `pkgs.buildDotnetModule` (nixpkgs)                             | Generates a `nuget-deps.nix` companion, first-party.                                                                         | —                                                                                                                     |
-| R: reproducible environment                | `rix` (`b-rodrigues/rix`)                                      | Built for reproducible analysis stacks; growing use among data-science Nix users.                                            | `rPackages` (nixpkgs) for one-off packages                                                                            |
-| Crystal                                    | `pkgs.crystal.buildCrystalPackage` (nixpkgs)                   | First-party, reads `shard.lock`.                                                                                             | —                                                                                                                     |
-| Generic or multi-language monorepo         | `dream2nix` (`nix-community/dream2nix`)                        | Aims to unify `*2nix` across ecosystems; maturity varies by language (Rust and JS strong, others newer).                     | Per-ecosystem tools above, unless one tool across languages pays for itself                                           |
-
-**Verify before you commit.** Projects get archived, forks overtake upstreams, and the recommended way can change within a year. Before writing a `*2nix` choice into a flake, check the candidate's repo for a commit in the last 6 months or so, a responsive issue tracker, and a README that still matches your use. Cross-check [search.nixos.org](https://search.nixos.org/), the nixpkgs manual and recent NixOS Discourse threads for the language, and `nix-clojure` or `nix-java` for theirs.
-
-### Decision shortcuts
-
-- **A first-party builder in nixpkgs meets your needs:** use it. No extra input, it follows nixpkgs' release cadence, and it is less likely to rot than a third-party flake.
-- **You need per-crate caching, several cross-cutting outputs, or hermetic CI builds:** reach for `crane`, `haskell.nix`, `clj-nix` or similar specialised tools; they pay off once the build matrix is non-trivial.
-- **The project already uses a tool:** keep it, unless the user has put it up for review.
-- **The language has no good story** (Swift, R packages outside CRAN, niche DSLs): say so, and propose a fixed-output derivation that vendors the dependencies, or `dream2nix`. Don't invent a recommendation.
 
 ## Dev shell ergonomics
 
@@ -409,18 +282,15 @@ Resources for cross-checking this skill; where one conflicts with it, the upstre
 
 !`cat "${CLAUDE_SKILL_DIR}/../nix-flakes.preferences.md" "${CLAUDE_PROJECT_DIR}/.agents/skills/nix-flakes.preferences.md" 2>/dev/null || true`
 
-If your agent doesn't run the line above, read these files yourself if they
-exist: `nix-flakes.preferences.md` next to this skill's folder, then
-`.agents/skills/nix-flakes.preferences.md` in the project. A project's
-file overrides the user's, and the user's overrides this skill's defaults.
+If your agent doesn't run the line above, read these files yourself if they exist: `nix-flakes.preferences.md` next to this skill's folder, then `.agents/skills/nix-flakes.preferences.md` in the project.
+A project's file overrides the user's, and the user's overrides this skill's defaults.
 
 ## Related skills
 
-When one of these applies and it's in your skill listing, load it
-without asking. If it isn't in your listing, tell the user which skill is
-missing and ask whether to install it from the same collection this skill
-came from; don't apply it from memory.
+When one of these applies and it's in your skill listing, load it without asking.
+If it isn't in your listing, tell the user which skill is missing and ask whether to install it from the same collection this skill came from; don't apply it from memory.
 
 - `nix-java`: JVM specifics: the JDK override argument per tool, the IDE-stable `nix-jdk` symlink and `lowPrio` for clashing wrappers.
 - `nix-clojure`: Clojure and ClojureScript packaging with clj-nix.
+- `nix-language-packaging`: choosing, with the user, the `*2nix` library that packages a project's dependencies, per language.
 - `nix-flake-recursive-bump-input-versions`: bumping owned inputs across a multi-repo tree of flakes, leaves first.

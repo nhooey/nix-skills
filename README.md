@@ -69,6 +69,7 @@ Each skill derivation produces `$out/share/claude-skills/<name>/` containing `SK
 | nix-flake-recursive-bump-input-versions | Recursively bump owned flake inputs across a multi-repo lock tree, cascading PRs leaves-first. | [skills/nix-flake-recursive-bump-input-versions](skills/nix-flake-recursive-bump-input-versions) |
 | nix-clojure | Clojure / ClojureScript packaging in Nix flakes via clj-nix. | [skills/nix-clojure](skills/nix-clojure) |
 | nix-java | JVM-specific patterns in Nix flakes (IDE-stable JDK symlink, override patterns). | [skills/nix-java](skills/nix-java) |
+| nix-language-packaging | Choosing a `*2nix` library to package a project's dependencies, per language, with the user. | [skills/nix-language-packaging](skills/nix-language-packaging) |
 
 ## Adding a new skill
 
@@ -76,6 +77,7 @@ In the dev shell (`nix develop`), scaffold it with:
 
 ```sh
 nix-skills new-skill my-skill "What the skill does, and when the model should invoke it."
+git add skills/my-skill   # Nix doesn't see an untracked flake.nix
 nix-skills update-skill-locks my-skill
 ```
 

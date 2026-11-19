@@ -55,7 +55,8 @@ skills/NAME/flake.nix so the skill installs on its own, and a row for it in
 the README's "Skills in this repo" table. NAME is lowercase words joined by
 hyphens. Refuses when skills/NAME already exists.
 
-Lock the new flake afterwards with \`$PROG update-skill-locks NAME\`.
+Lock the new flake afterwards with \`git add skills/NAME\` and then
+\`$PROG update-skill-locks NAME\`: Nix doesn't see an untracked flake.nix.
 EOF
 }
 
@@ -97,12 +98,28 @@ valid_skill_name() {
   [[ $1 =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]
 }
 
+# Print $1 as a YAML scalar: as it is when YAML reads it back as that same
+# string, else double-quoted with its backslashes and quotes escaped.
+yaml_scalar() {
+  local s="$1"
+  local indicator='^[][{}>|*&!%@`'"'"'",?:#-]'
+  local plain_non_string='^(~|null|Null|NULL|true|True|TRUE|false|False|FALSE|yes|Yes|YES|no|No|NO|on|On|ON|off|Off|OFF|[-+.0-9][-+._0-9a-fA-FxXoO]*)$'
+  if [[ $s == *': '* || $s == *' #'* || $s == *: || $s =~ $indicator ||
+    $s =~ ^[[:space:]] || $s =~ [[:space:]]$ || $s =~ $plain_non_string ]]; then
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    printf '"%s"\n' "$s"
+  else
+    printf '%s\n' "$s"
+  fi
+}
+
 # Print the SKILL.md for skill $1 with description $2.
 render_skill_md() {
   cat <<EOF
 ---
 name: $1
-description: $2
+description: $(yaml_scalar "$2")
 ---
 
 # $1
@@ -139,9 +156,16 @@ EOF
 
 # Read a README on stdin and print it with a row for skill $1 (description $2)
 # after the last row of the table under "## Skills in this repo". Exits 1,
-# printing nothing, when that table isn't there.
+# printing nothing, when that table isn't there. The values go through the
+# environment, since `awk -v` would read backslashes in them as escapes, and a
+# `|` in the description is escaped so it stays in its cell.
 add_readme_row() {
-  awk -v name="$1" -v desc="$2" '
+  ROW_NAME="$1" ROW_DESC="$2" awk '
+    BEGIN {
+      name = ENVIRON["ROW_NAME"]
+      desc = ENVIRON["ROW_DESC"]
+      gsub(/\|/, "\\|", desc)
+    }
     function flush() { out = out $0 "\n" }
     /^## Skills in this repo/ { in_section = 1 }
     in_section && /^\|/ { in_table = 1; flush(); next }
@@ -206,7 +230,8 @@ cmd_new_skill() {
   rm -f "$tmp"
 
   echo "Created skills/$name/SKILL.md and skills/$name/flake.nix; added its README row."
-  echo "Next: write the skill, then run '$PROG update-skill-locks $name'."
+  echo "Next: write the skill, then run 'git add skills/$name' and"
+  echo "'$PROG update-skill-locks $name' (Nix doesn't see an untracked flake.nix)."
 }
 
 cmd_update_skill_locks() {

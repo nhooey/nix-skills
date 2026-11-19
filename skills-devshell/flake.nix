@@ -12,38 +12,12 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Skill sources, the same repos `github:nhooey/skillspkgs` aggregates.
-    # They follow `nixpkgs` but not `agent-skill-flake`, so each keeps its own
-    # compatible builder.
-    coding-agent-skills = {
-      url = "github:nhooey/coding-agent-skills";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    git-skills = {
-      url = "github:nhooey/git-skills";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    nix-skills = {
-      url = "github:nhooey/nix-skills";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    shell-skills = {
-      url = "github:nhooey/shell-skills";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    # skillspkgs' curated `authoring-with-git` combination (nix + humanizer +
-    # anthropic skill-creation + superpowers + the whole git/GitHub pack),
-    # surfaced through its own subdir flake. Its git and nix packs follow the
-    # inputs above, so the combination installs the same revisions.
+    # skillspkgs' per-family combinations, surfaced through their own subdir
+    # flake. nix-skills is a skill collection, so it takes the
+    # `skill-collections` combination.
     skillspkgs-combinations = {
       url = "github:nhooey/skillspkgs?dir=sources/combinations";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-        agent-skill-flake.follows = "agent-skill-flake";
-        git-skills.follows = "git-skills";
-        nix-skills.follows = "nix-skills";
-      };
+      inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
@@ -60,21 +34,10 @@
       name = "nix-skills-devshell";
       envName = "agent-skills-nix-skills-devshell";
       sources = [
-        # Authoring nix skills with git: the whole git/GitHub pack, nix-flakes,
-        # humanizer, anthropic skill-creation and superpowers.
-        { source = skillspkgs-combinations.combinations.authoring-with-git; }
-        # Safe shell commands: named deletes, PIDs, no machine-wide changes.
-        { source = inputs.shell-skills; }
-        # Running a prompt as a headless session in other checkouts, keeping
-        # the scratchpad tidy, and the cross-repository plan's graph.
-        {
-          source = inputs.coding-agent-skills;
-          skills = [
-            "coding-agent-headless-in-checkout"
-            "coding-agent-plans-as-graph"
-            "coding-agent-scratchpad-scripts"
-          ];
-        }
+        # The skill-collections family's combination, the shell's one source:
+        # the shared base plus skill authoring. Nix-skills uses no language or
+        # tool the rest of the family doesn't, so it adds nothing.
+        { source = skillspkgs-combinations.combinations.skill-collections; }
       ];
     };
 }

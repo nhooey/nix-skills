@@ -21,7 +21,7 @@
         "original": { "type": "github", "owner": "hercules-ci", "repo": "flake-parts" }
       },
       "foo": {
-        "inputs": { "bar": "bar", "nixpkgs": ["root", "nixpkgs"] },
+        "inputs": { "bar": "bar", "nixpkgs": ["nixpkgs"] },
         "locked": { "type": "github", "owner": "nhooey", "repo": "foo", "rev": "3333333333333333333333333333333333333333" },
         "original": { "type": "github", "owner": "nhooey", "repo": "foo" }
       },
